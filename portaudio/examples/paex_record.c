@@ -1,3 +1,45 @@
+/** @file paex_record.c
+	@ingroup examples_src
+	@brief Record input into an array; Save array to a file; Playback recorded data.
+	@author Phil Burk  http://www.softsynth.com
+*/
+/*
+ * $Id: paex_record.c 1752 2011-09-08 03:21:55Z philburk $
+ *
+ * This program uses the PortAudio Portable Audio Library.
+ * For more information see: http://www.portaudio.com
+ * Copyright (c) 1999-2000 Ross Bencina and Phil Burk
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files
+ * (the "Software"), to deal in the Software without restriction,
+ * including without limitation the rights to use, copy, modify, merge,
+ * publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+ * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+/*
+ * The text above constitutes the entire PortAudio license; however, 
+ * the PortAudio community also makes the following non-binding requests:
+ *
+ * Any person wishing to distribute modifications to the Software is
+ * requested to send the modifications to the original developer so that
+ * they can be incorporated into the canonical version. It is also 
+ * requested that these non-binding requests be included along with the 
+ * license above.
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,7 +48,7 @@
 /* #define SAMPLE_RATE  (17932) // Test failure to open with this value. */
 #define SAMPLE_RATE  (44100)
 #define FRAMES_PER_BUFFER (512)
-#define NUM_SECONDS     (3)
+#define NUM_SECONDS     (5)
 #define NUM_CHANNELS    (2)
 /* #define DITHER_FLAG     (paDitherOff) */
 #define DITHER_FLAG     (0) /**/
@@ -241,7 +283,7 @@ int main(void)
 #if WRITE_TO_FILE
     {
         FILE  *fid;
-        fid = fopen("recorded.mp3", "wb");
+        fid = fopen("recorded.raw", "wb");
         if( fid == NULL )
         {
             printf("Could not open file.");
@@ -250,7 +292,7 @@ int main(void)
         {
             fwrite( data.recordedSamples, NUM_CHANNELS * sizeof(SAMPLE), totalFrames, fid );
             fclose( fid );
-            printf("Wrote data to 'recorded.mp3'\n");
+            printf("Wrote data to 'recorded.raw'\n");
         }
     }
 #endif
@@ -309,3 +351,4 @@ done:
     }
     return err;
 }
+
