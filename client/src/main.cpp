@@ -170,34 +170,13 @@ int main(void)
     
     for( i=0; i<(NUM_SECONDS*SAMPLE_RATE)/FRAMES_PER_BUFFER; ++i )
     {
-      //rintf("Cykl, tik tak              i=%d \n", i);
-      err = Pa_ReadStream( stream, sampleBlock, FRAMES_PER_BUFFER );
-
-      //  memcpy( tempBuffer, sampleBlock, FRAMES_PER_BUFFER );
+      /*******MIC INPUT*******/
+      err = Pa_ReadStream( stream, sampleBlock, FRAMES_PER_BUFFER ); 
 
 
-      // for(int j=0; j<2048; j++)
-      // {
-      //   sampleBlock[j]=(char)0;
-      // }
-      // memcpy (sampleBlock, tempBuffer, FRAMES_PER_BUFFER);
-
-
-       err = Pa_WriteStream( stream, sampleBlock, FRAMES_PER_BUFFER );
-       //if( err && CHECK_UNDERFLOW ) goto xrun;
-      //  memcpy( tempBuffer, sampleBlock, FRAMES_PER_BUFFER*2 );
-
-
-      // for(int j=0; j<1024; j++)
-      // {
-      //   memset(tempBuffer, '0', FRAMES_PER_BUFFER);
-      // }
-      // memcpy (sampleBlock, tempBuffer, FRAMES_PER_BUFFER*2);
-       
-
-       
-       //if( err && CHECK_OVERFLOW ) goto xrun;
-       //memset(tempBuffer, '0', FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE);
+      /*******SPEAKER OUTPUT*******/
+      err = Pa_WriteStream( stream, sampleBlock, FRAMES_PER_BUFFER );
+   
     }
     printf("Post value i=%d \n", i);
     err = Pa_StopStream( stream );
