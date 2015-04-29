@@ -1,5 +1,9 @@
 #include "AudioController.hpp"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 AudioController::AudioController()
 {
     int numBytes = FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE;
@@ -14,10 +18,16 @@ AudioController::AudioController()
 
 }
 
+AudioController::~AudioController()
+{
+    free(sampleBlock);
+
+}
+
 void AudioController::initializeAudio()
 {
     this->error = Pa_Initialize();
-    if(this->error != paNoError) catchPa_Error();
+    if(this->error != paNoError){puts("chuuj0"); catchPa_Error();}
 
     inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
     printf( "Input device # %d.\n", inputParameters.device );
@@ -37,7 +47,14 @@ void AudioController::initializeAudio()
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultHighOutputLatency;
     outputParameters.hostApiSpecificStreamInfo = NULL;
 
-    this->error = Pa_OpenStream(
+
+
+   return;
+}   
+
+void AudioController::IOAudioFunction()
+{
+        this->error = Pa_OpenStream(
               &this->stream,
               &this->inputParameters,
               &this->outputParameters,
@@ -47,16 +64,35 @@ void AudioController::initializeAudio()
               NULL, /* no callback, use blocking API */
               NULL ); /* no callback, so no callback userData */
 
-   if(error != paNoError) catchPa_Error();           
-}   
+   if(error != paNoError){puts("chuuj1"); catchPa_Error();}
+   
+    fprintf( stdout, "Status: %s\n", Pa_GetErrorText(Pa_IsStreamActive(stream)) );
+
+    //puts("dupa");
+    for( int i=0; i<(5*SAMPLE_RATE)/FRAMES_PER_BUFFER; ++i )
+    {
+      /*******MIC INPUT*******/
+      error = Pa_ReadStream( stream, sampleBlock, FRAMES_PER_BUFFER ); 
+      // puts("dupa2");
+
+      /*******SPEAKER OUTPUT*******/
+      error = Pa_WriteStream( stream, sampleBlock, FRAMES_PER_BUFFER );
+//puts("dupa3");
+    }
+
+    return;
+}
 
 void AudioController::closeAudio()
 {
     error = Pa_StopStream( stream );
-    if( error != paNoError ) catchPa_Error();
+    fprintf( stdout, "Status: %s\n", Pa_GetErrorText(Pa_IsStreamActive(stream)) );
+    if( error != paNoError ) {puts("chuuj2"); catchPa_Error();}
     clearBuffer(sampleBlock, FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE);
     free( sampleBlock );
     Pa_Terminate();
+
+    return;
 }
 
 
@@ -65,8 +101,9 @@ void AudioController::clearBuffer(char* buf, int size)
 {
     for(int i=0;i<size ;i++)
     {
-        this->sampleBlock[i]= SaMPLE_SILENCE;
+        this->sampleBlock[i]= SAMPLE_SILENCE;
     }
+    return;
 }
 
 void AudioController::catchPa_Error()

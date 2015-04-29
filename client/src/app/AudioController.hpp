@@ -1,7 +1,7 @@
 #ifndef AUDIOCONTROLLER_HPP
 #define AUDIOCONTROLLER_HPP
 
-#include "portaudio.hpp"
+#include "portaudio.h"
 
 #define SAMPLE_RATE  (44100)
 #define FRAMES_PER_BUFFER (1024)
@@ -21,7 +21,7 @@ private:
     PaError error;
     PaStreamParameters inputParameters, outputParameters;
 
-    std::thread;
+    //std::thread;
     //blockingqueue nadan z gory przez AppClient
 public:
 
