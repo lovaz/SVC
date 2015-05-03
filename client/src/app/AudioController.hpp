@@ -6,9 +6,9 @@
 #define SAMPLE_RATE  (44100)
 #define FRAMES_PER_BUFFER (1024)
 #define NUM_CHANNELS    (2)
-#define PA_SAMPLE_TYPE  paUInt8
-#define SAMPLE_SIZE (1)
-#define SAMPLE_SILENCE  (128)
+#define PA_SAMPLE_TYPE  paFloat32
+#define SAMPLE_SIZE (4)
+#define SAMPLE_SILENCE  (0.0f)
 
 
 class AudioController
@@ -20,6 +20,7 @@ private:
     PaStream* stream;
     PaError error;
     PaStreamParameters inputParameters, outputParameters;
+    char* record;
 
     //std::thread;
     //blockingqueue nadan z gory przez AppClient

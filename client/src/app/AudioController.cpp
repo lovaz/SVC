@@ -3,17 +3,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 AudioController::AudioController()
 {
     int numBytes = FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE;
     this->sampleBlock = (char*) malloc(numBytes);
+    this->record = (char*) malloc(numBytes*500);
     if( sampleBlock == NULL )
     {
         printf("Could not allocate record array.\n");
         exit(1);
     }
     clearBuffer(this->sampleBlock, numBytes);
+    stream = NULL;
 
 
 }
@@ -67,18 +70,45 @@ void AudioController::IOAudioFunction()
    if(error != paNoError){puts("chuuj1"); catchPa_Error();}
    
     fprintf( stdout, "Status: %s\n", Pa_GetErrorText(Pa_IsStreamActive(stream)) );
-
+ //fprintf( stdout, "Status: %s\n", Pa_GetStreamInfo(stream));
     //puts("dupa");
-    for( int i=0; i<(5*SAMPLE_RATE)/FRAMES_PER_BUFFER; ++i )
-    {
-      /*******MIC INPUT*******/
-      error = Pa_ReadStream( stream, sampleBlock, FRAMES_PER_BUFFER ); 
-      // puts("dupa2");
+    error = Pa_StartStream( stream );
+    if( error != paNoError ) catchPa_Error();
 
-      /*******SPEAKER OUTPUT*******/
-      error = Pa_WriteStream( stream, sampleBlock, FRAMES_PER_BUFFER );
-//puts("dupa3");
+    assert(sampleBlock!= NULL);
+//     for( int i=0; i<(15*SAMPLE_RATE)/FRAMES_PER_BUFFER; ++i )
+//     {
+
+
+//       /*******MIC INPUT*******/
+//       error = Pa_ReadStream( stream, sampleBlock, FRAMES_PER_BUFFER ); 
+//      // if(error != paNoError){puts("chuujA"); catchPa_Error();}
+//       // puts("dupa2");
+     
+//       /*******SPEAKER OUTPUT*******/
+//       error = Pa_WriteStream( stream, sampleBlock, FRAMES_PER_BUFFER );
+//      // if(error != paNoError){puts("chuujB"); catchPa_Error();}
+      
+// //puts("dupa3");
+//     }
+    for(int i=0; i<100; i++)
+    {
+       error = Pa_ReadStream( stream, record+(i*FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE), FRAMES_PER_BUFFER );
+       if(error != paNoError){puts("chuujA"); catchPa_Error();}
+       
     }
+    for (int j = 0; j< 102400; ++j)
+       {
+         printf("Value: %d\n", *(record+j));     
+       }
+
+    for(int i=0; i<100; i++)
+    {
+        error = Pa_WriteStream( stream, record+(i*FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE), FRAMES_PER_BUFFER );
+        if(error != paNoError){puts("chuujB"); catchPa_Error();}
+    }
+
+
 
     return;
 }
@@ -118,4 +148,5 @@ void AudioController::catchPa_Error()
     fprintf( stderr, "Error number: %d\n", error );
     fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( error ) );
     exit(-666);
+    
 }
