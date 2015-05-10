@@ -1,6 +1,8 @@
 #include "AudioController.hpp"
 
 #include <stdio.h>
+#include <time.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -24,7 +26,6 @@ AudioController::AudioController()
 AudioController::~AudioController()
 {
     free(sampleBlock);
-
 }
 
 void AudioController::initializeAudio()
@@ -95,6 +96,52 @@ void AudioController::IOAudioFunction()
 
     return;
 }
+
+void AudioController::openStream()
+{
+        this->error = Pa_OpenStream(
+              &this->stream,
+              &this->inputParameters,
+              &this->outputParameters,
+              SAMPLE_RATE,
+              0,
+              paClipOff,      /* we won't output out of range samples so don't bother clipping them */
+              NULL, /* no callback, use blocking API */
+              NULL ); /* no callback, so no callback userData */
+
+    if(error != paNoError){puts("test1"); catchPa_Error();}
+   
+    fprintf( stdout, "Status: %s\n", Pa_GetErrorText(Pa_IsStreamActive(stream)) );
+
+    error = Pa_StartStream( stream );
+    if( error != paNoError ) catchPa_Error();
+}
+
+void AudioController::recordAudio(BlockingQueue<Sample> &blockingQueue)
+{
+     Sample testSample;
+
+    for(int i=0; i<300; i++)
+    {
+       error = Pa_ReadStream( stream, record+(FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE), FRAMES_PER_BUFFER );
+       if(error != paNoError){puts("testA"); catchPa_Error();}
+       testSample.setSample(record+(FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE));
+       blockingQueue.push(testSample);
+    }
+    return;
+}
+
+void AudioController::playAudio(BlockingQueue<Sample> &blockingQueue)
+{
+  sleep(2);
+    for(int i=0; i<300; i++)
+    {
+        error = Pa_WriteStream( stream, blockingQueue.pop().getSample(), FRAMES_PER_BUFFER );
+        if(error != paNoError){puts("testB"); catchPa_Error();}
+    }
+    return;
+}
+
 
 void AudioController::closeAudio()
 {
