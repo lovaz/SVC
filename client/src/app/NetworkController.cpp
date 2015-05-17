@@ -151,6 +151,7 @@ void Connection::tcpSend()
         else if(strcmp(msg,"exitOK") == 0)
         {
           shutdownTcpConnection();
+          shutdownUdpConnection();
           exit(0);
         }
         msg[read_size] = '\0';
@@ -181,9 +182,11 @@ void Connection::tcpRecv()
       }
       else if(strcmp(msg,"exit") == 0)
       {
+        endUdpCommunication = true;
         strcpy(msg, "exitOK");
         send(TCPSocketFD , msg , strlen(msg), 0);
         shutdownTcpConnection();
+        shutdownUdpConnection();
         break;
       }
       send(TCPSocketFD , msg , strlen(msg), 0);
@@ -240,30 +243,62 @@ int Connection::initializeSockaddrStruct(int port)
   return 0;
 }
 
-int Connection::udpSend(char* buffer)
+int Connection::udpSend(BlockingQueue<Sample>& blockingQueue)
 {
-  while(1)
+  while(!endUdpCommunication)
   {
+    char buffer[MAX_BUF];
+    strcpy(buffer,blockingQueue.pop().getSample());
     sendto(udpConnection.mySendSocketFD, buffer, strlen(buffer)+1, 0, 
         (struct sockaddr*)&udpConnection.serverAddrRecv, sizeof(udpConnection.serverAddrRecv));
-    fflush(stdout);
-    sleep(1);
   }
   return 0;
 }
 
-int Connection::udpRecv()
+int Connection::udpRecv(BlockingQueue<Sample>& blockingQueue)
 {
-  while(1)
+  char buf[MAX_BUF];
+  while(!endUdpCommunication)
   {
-    char buf[MAX_BUF];
     unsigned int addrlen = sizeof(udpConnection.myAddrRecv);
     int i = recvfrom(udpConnection.myRecvSocket.socket, buf, MAX_BUF, 0, 
         (struct sockaddr*)&udpConnection.myAddrRecv, &addrlen);
     if(i > 0)
-      printf("%s\n", buf);
-    fflush(stdout);
-    sleep(1);
+    {
+      Sample sample;
+      sample.setSample(buf);
+      blockingQueue.push(sample);
+      printf("%s\n",sample.getSample());
+      fflush(stdout);
+    }
   }
   return 0;
+}
+
+int Connection::shutdownUdpConnection()
+{
+   close(udpConnection.mySendSocketFD);
+   close(udpConnection.myRecvSocket.socket);
+
+   printf("Polaczenie UDP zamkniete\n");
+   return 0;
+}
+
+
+
+//funkcja pomocnicza
+void Connection::sampleFactory(BlockingQueue<Sample>& blockingQueue)
+{
+  while(1)
+  {
+    fflush(stdout);
+    Sample sample;
+    char* message = (char*)malloc(100*sizeof(char));
+    strcpy(message,"testMessage");
+    sample.setSample(message);
+    if(message!=NULL)
+      free(message);
+    blockingQueue.push(sample);
+    usleep(200000);
+  }
 }

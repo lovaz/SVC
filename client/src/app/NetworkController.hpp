@@ -20,6 +20,22 @@
 
 #define MAX_BUF 1000000
 
+//Struktura skopiowana tymczasowo z pliku AudioController.hpp
+class Sample
+{
+private:
+    char sample[1000];
+public:
+    void setSample(char* data)
+    {
+        memcpy(sample, data, 1000);
+    }
+    char* getSample()
+    {
+        return sample;
+    }
+};
+
 
 struct socketPort
 {
@@ -47,17 +63,21 @@ private:
    char msg[1000];
    bool isConnected;
    bool isTcpClient;
+   bool endUdpCommunication;
 public:;
-   Connection() { isTcpClient = isConnected = false;}
+   Connection() { endUdpCommunication = isTcpClient = isConnected = false;}
    int tcpServer(int port);
    int tcpClient(int port, char* addr, int addr_length);
    int shutdownTcpConnection();
+   int shutdownUdpConnection();
    void tcpSend();
    void tcpRecv();
    int createUdpSockets(int portRecv);
-   int udpSend(char* buffer);
-   int udpRecv();
+   int udpSend(BlockingQueue<Sample>& blockingQueue);
+   int udpRecv(BlockingQueue<Sample>& blockingQueue);
    int initializeSockaddrStruct(int port);
+   //funkcja pomocnicza
+   void sampleFactory(BlockingQueue<Sample>& blockingQueue);
 };
 
 #endif
