@@ -1,7 +1,25 @@
 #ifndef NETWORKCONTROLLER_HPP
 #define NETWORKCONTROLLER_HPP
 
+#include <iostream>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+
 #include "BlockingQueue.hpp"
+
+#define MAX_BUF 1000
+
 
 struct socketPort
 {
@@ -11,10 +29,11 @@ struct socketPort
 
 struct UdpConnection
 {
-   socketPort myRecvPortFD;
-   socketPort mySendPortFD;
-   socketPort clientRecvPortFD;
-   socketPort clientSendPortFD;
+   int mySendSocketFD;
+   socketPort myRecvSocket;
+   struct sockaddr_in serverAddrRecv;
+   struct sockaddr_in serverAddrSend;
+   struct sockaddr_in myAddrRecv;
    char clientIpAddress[15];
 };
 
@@ -25,18 +44,19 @@ private:
    UdpConnection udpConnection;
    int TCPSocketFD; // gniazdo TCP
    int connFD;
-   char msg[100];
+   char msg[1000];
    bool isConnected;
 public:;
    Connection() { isConnected = false;}
    int tcpServer(int port);
    int tcpClient(int port, char* addr, int addr_length);
    int shutdownTcpConnection();
-   int tcpSend();
-   int tcpRecv();
-   int createUdpSockets(int portSend, int portRecv);
+   void tcpSend();
+   void tcpRecv();
+   int createUdpSockets(int portRecv);
    int udpSend(char* buffer);
    int udpRecv();
+   int initializeSockaddrStruct(int port);
 };
 
 #endif

@@ -1,14 +1,4 @@
-
 #include "NetworkController.hpp"
-#include <iostream>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
 int Connection::tcpServer(int port)
 {
@@ -125,25 +115,28 @@ int Connection::shutdownTcpConnection()
    return 0;
 }
 
-int Connection::tcpSend()
+void Connection::tcpSend()
 {
   if(!isConnected)
   {
     printf("Brak polaczenia.\n");
-    return -1;
+    return;
   }
   while(1)
     {
         printf("Wpisz polecenie: ");
-        scanf("%s" , msg);
-        if(strcmp(msg,"createUdpSockets") == 0)
+          scanf("%s" , msg);
+
+        if(strcmp(msg,"connect") == 0)
         {
-          createUdpSockets(8001,8002);
+          createUdpSockets(50001);
+          initializeSockaddrStruct(50002);
         }
+
         if( send(TCPSocketFD , msg , strlen(msg) , 0) < 0)
         {
             puts("Wysylanie nie powiodlo sie\n");
-            return 1;
+            return;
         }
          
         if( recv(TCPSocketFD , msg , 100 , 0) < 0)
@@ -159,15 +152,14 @@ int Connection::tcpSend()
          
         printf("server: %s\n",msg);
     }
-  return 0;
 }
 
-int Connection::tcpRecv()
+void Connection::tcpRecv()
 {
   if(!isConnected)
   {
     printf("Brak polaczenia.\n");
-    return -1;
+    return;
   }
   int read_size;
   while( (read_size = recv(TCPSocketFD , msg , 100 , 0)) > 0 )
@@ -176,9 +168,11 @@ int Connection::tcpRecv()
         {
           //saveUdpPorts(msg);
         }
-        if(strcmp(msg,"createUdpSockets") == 0)
+        if(strcmp(msg,"connect") == 0)
         {
-          createUdpSockets(8003,8004);
+          createUdpSockets(50002);
+          initializeSockaddrStruct(50001);
+          sprintf(msg,"socketsOK::50002");
         }
         else if(strcmp(msg,"exit") == 0)
         {
@@ -189,23 +183,24 @@ int Connection::tcpRecv()
         }
         write(TCPSocketFD , msg , strlen(msg));
     }
-  
-  return 0;
 }
 
-int Connection::createUdpSockets(int portSend, int portRecv)
+int Connection::createUdpSockets(int portRecv)
 {
-   struct sockaddr_in stSockAddr;
-  udpConnection.myRecvPortFD.socket = socket(AF_INET, SOCK_DGRAM, 0);
-   if (udpConnection.myRecvPortFD.socket == -1)
+
+  udpConnection.myRecvSocket.port = portRecv;
+
+  struct sockaddr_in stSockAddr;
+  udpConnection.mySendSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
+   if (udpConnection.mySendSocketFD == -1)
    {
       printf("Nie udalo sie stworzyc gniazda UDP\n");
       return -1;
    }
    else
       printf("Gniazdo UDP zostalo utworzone\n");
-  udpConnection.mySendPortFD.socket = socket(AF_INET, SOCK_DGRAM, 0);
-   if (udpConnection.mySendPortFD.socket == -1)
+  udpConnection.myRecvSocket.socket = socket(AF_INET, SOCK_DGRAM, 0);
+   if (udpConnection.myRecvSocket.socket == -1)
    {
       printf("Nie udalo sie stworzyc gniazda UDP\n");
       return -1;
@@ -215,35 +210,50 @@ int Connection::createUdpSockets(int portSend, int portRecv)
 
     stSockAddr.sin_family = AF_INET;
     stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    stSockAddr.sin_port = htons(udpConnection.myRecvPortFD.port);
-    udpConnection.myRecvPortFD.port = portRecv;
-    if(bind(udpConnection.myRecvPortFD.socket,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
+    stSockAddr.sin_port = htons(udpConnection.myRecvSocket.port);
+    if(bind(udpConnection.myRecvSocket.socket,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
     {
       printf("Nie udalo sie wykonac funkcji bind\n");
       return -1;
     }
     else
-      printf("Funkcja bind zakonczona poprawnie, port: %d.\n", udpConnection.myRecvPortFD.port);
-    stSockAddr.sin_port = htons(udpConnection.mySendPortFD.port);
-    udpConnection.mySendPortFD.port = portSend;
-    if(bind(udpConnection.mySendPortFD.socket,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
-    {
-      printf("Nie udalo sie wykonac funkcji bind\n");
-      return -1;
-    }
-    else
-      printf("Funkcja bind zakonczona poprawnie, port: %d.\n", udpConnection.mySendPortFD.port);
+      printf("Funkcja bind zakonczona poprawnie, port: %d.\n", udpConnection.myRecvSocket.port);
+
+    fflush(stdout);
     return 0;
+}
+
+int Connection::initializeSockaddrStruct(int port)
+{
+  udpConnection.serverAddrRecv.sin_family = AF_INET;
+  udpConnection.serverAddrRecv.sin_port = htons(port);
+  inet_pton(AF_INET, "192.168.1.2", &udpConnection.serverAddrRecv.sin_addr);
+  return 0;
 }
 
 int Connection::udpSend(char* buffer)
 {
-  
+  while(1)
+  {
+    sendto(udpConnection.mySendSocketFD, buffer, strlen(buffer)+1, 0, 
+        (struct sockaddr*)&udpConnection.serverAddrRecv, sizeof(udpConnection.serverAddrRecv));
+    fflush(stdout);
+    sleep(1);
+  }
   return 0;
 }
 
 int Connection::udpRecv()
 {
-  
+  while(1)
+  {
+    char buf[MAX_BUF];
+    unsigned int addrlen = sizeof(udpConnection.myAddrRecv);
+    recvfrom(udpConnection.myRecvSocket.socket, buf, MAX_BUF, 0, 
+        (struct sockaddr*)&udpConnection.myAddrRecv, &addrlen);
+    printf("%s\n", buf);
+    fflush(stdout);
+    sleep(1);
+  }
   return 0;
 }
