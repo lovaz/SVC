@@ -20,7 +20,8 @@ int main(int argc, char** argv)
     {
         NeCo->tcpClient(atoi(argv[2]),argv[1],sizeof(argv[1])/sizeof(char));
         std::thread t1(&Connection::tcpSend, NeCo);
-        std::thread t2(&Connection::udpSend, NeCo, argv[1]);
+        char buffer[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaxxxxxxxx";
+        std::thread t2(&Connection::udpSend, NeCo, buffer);
         std::thread t3(&Connection::udpRecv, NeCo);
         t1.join();
         t2.join();

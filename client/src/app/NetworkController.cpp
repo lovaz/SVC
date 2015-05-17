@@ -1,5 +1,7 @@
 #include "NetworkController.hpp"
 
+#define RECV_ADDR "192.168.1.2"
+
 int Connection::tcpServer(int port)
 {
    struct sockaddr_in stSockAddr;
@@ -59,7 +61,8 @@ int Connection::tcpClient(int port, char addr[], int addr_length)
    struct sockaddr_in stSockAddr;
    int Res;
    TCPSocketFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-
+   strcpy(udpConnection.clientIpAddress,addr);
+   isTcpClient = true;
    if(TCPSocketFD == -1)
    {
       printf("Nie udalo sie utworzyc gniazda TCP.\n");
@@ -122,6 +125,7 @@ void Connection::tcpSend()
     printf("Brak polaczenia.\n");
     return;
   }
+  int read_size;
   while(1)
     {
         printf("Wpisz polecenie: ");
@@ -139,7 +143,7 @@ void Connection::tcpSend()
             return;
         }
          
-        if( recv(TCPSocketFD , msg , 100 , 0) < 0)
+        if( (read_size = recv(TCPSocketFD , msg , 100 , 0)) < 0)
         {
             puts("Odbieranie nie powiodlo sie.\n");
             break;
@@ -147,9 +151,9 @@ void Connection::tcpSend()
         else if(strcmp(msg,"exitOK") == 0)
         {
           shutdownTcpConnection();
-          break;
+          exit(0);
         }
-         
+        msg[read_size] = '\0';
         printf("server: %s\n",msg);
     }
 }
@@ -164,25 +168,27 @@ void Connection::tcpRecv()
   int read_size;
   while( (read_size = recv(TCPSocketFD , msg , 100 , 0)) > 0 )
     {
-        if(strcmp(msg,"myUdpPorts") == 0)
-        {
-          //saveUdpPorts(msg);
-        }
-        if(strcmp(msg,"connect") == 0)
-        {
-          createUdpSockets(50002);
-          initializeSockaddrStruct(50001);
-          sprintf(msg,"socketsOK::50002");
-        }
-        else if(strcmp(msg,"exit") == 0)
-        {
-          strcpy(msg, "exitOK");
-          write(TCPSocketFD , msg , strlen(msg));
-          shutdownTcpConnection();
-          break;
-        }
-        write(TCPSocketFD , msg , strlen(msg));
+      msg[read_size] = '\0';
+      if(strcmp(msg,"myUdpPorts") == 0)
+      {
+        //saveUdpPorts(msg);
+      }
+      if(strcmp(msg,"connect") == 0)
+      {
+        createUdpSockets(50002);
+        initializeSockaddrStruct(50001);
+        sprintf(msg,"socketsOK::50002");
+      }
+      else if(strcmp(msg,"exit") == 0)
+      {
+        strcpy(msg, "exitOK");
+        send(TCPSocketFD , msg , strlen(msg), 0);
+        shutdownTcpConnection();
+        break;
+      }
+      send(TCPSocketFD , msg , strlen(msg), 0);
     }
+    exit(0);
 }
 
 int Connection::createUdpSockets(int portRecv)
@@ -227,7 +233,10 @@ int Connection::initializeSockaddrStruct(int port)
 {
   udpConnection.serverAddrRecv.sin_family = AF_INET;
   udpConnection.serverAddrRecv.sin_port = htons(port);
-  inet_pton(AF_INET, "192.168.1.2", &udpConnection.serverAddrRecv.sin_addr);
+  if(isTcpClient)
+    inet_pton(AF_INET, udpConnection.clientIpAddress , &udpConnection.serverAddrRecv.sin_addr);
+  else
+    inet_pton(AF_INET, RECV_ADDR , &udpConnection.serverAddrRecv.sin_addr);
   return 0;
 }
 
@@ -249,9 +258,10 @@ int Connection::udpRecv()
   {
     char buf[MAX_BUF];
     unsigned int addrlen = sizeof(udpConnection.myAddrRecv);
-    recvfrom(udpConnection.myRecvSocket.socket, buf, MAX_BUF, 0, 
+    int i = recvfrom(udpConnection.myRecvSocket.socket, buf, MAX_BUF, 0, 
         (struct sockaddr*)&udpConnection.myAddrRecv, &addrlen);
-    printf("%s\n", buf);
+    if(i > 0)
+      printf("%s\n", buf);
     fflush(stdout);
     sleep(1);
   }

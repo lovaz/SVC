@@ -18,7 +18,7 @@
 
 #include "BlockingQueue.hpp"
 
-#define MAX_BUF 1000
+#define MAX_BUF 1000000
 
 
 struct socketPort
@@ -46,8 +46,9 @@ private:
    int connFD;
    char msg[1000];
    bool isConnected;
+   bool isTcpClient;
 public:;
-   Connection() { isConnected = false;}
+   Connection() { isTcpClient = isConnected = false;}
    int tcpServer(int port);
    int tcpClient(int port, char* addr, int addr_length);
    int shutdownTcpConnection();
