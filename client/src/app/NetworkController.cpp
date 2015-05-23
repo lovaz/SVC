@@ -1,8 +1,6 @@
 #include "NetworkController.hpp"
 
-#define RECV_ADDR "192.168.1.2"
-
-int Connection::tcpServer(int port)
+int NetworkController::tcpServer(int port)
 {
    struct sockaddr_in stSockAddr;
    connFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -20,7 +18,6 @@ int Connection::tcpServer(int port)
    stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
    stSockAddr.sin_port = htons(port);                    //port
    stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
-   
    
    if(bind(connFD,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
    {
@@ -52,16 +49,20 @@ int Connection::tcpServer(int port)
       isConnected = true;
       printf("Polaczenie zaakceptowane.\n");
    }
+    
     close(connFD);
+    int readSize = recv(TCPSocketFD , tcpMsg , 100 , 0);
+    tcpMsg[readSize] = '\0';
+    strcpy(udpConnection.clientIpAddress, tcpMsg);
    return 0;
 }
 
-int Connection::tcpClient(int port, char addr[], int addr_length)
+int NetworkController::tcpClient(int port, char addr[], char addrFamily[4])
 {
    struct sockaddr_in stSockAddr;
    int Res;
    TCPSocketFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-   strcpy(udpConnection.clientIpAddress,addr);
+   strcpy(udpConnection.serverIpAddress,addr);
    isTcpClient = true;
    if(TCPSocketFD == -1)
    {
@@ -72,8 +73,17 @@ int Connection::tcpClient(int port, char addr[], int addr_length)
       printf("Gniazdo TCP zostalo stworzone.\n");
     
    memset(&stSockAddr, 0, sizeof(stSockAddr));
-    
-   stSockAddr.sin_family = AF_INET;
+   
+   if(strcmp(addrFamily, "ipv4") == 0)
+    stSockAddr.sin_family = AF_INET;
+   else if (strcmp(addrFamily, "ipv6") == 0)
+    stSockAddr.sin_family = AF_INET6;
+   else
+   {
+      printf("Zla rodzina adresow IP.\n");
+      close(TCPSocketFD);
+      return -1;
+   }
    stSockAddr.sin_port = htons(port);
    Res = inet_pton(AF_INET, addr, &stSockAddr.sin_addr);
     
@@ -101,10 +111,14 @@ int Connection::tcpClient(int port, char addr[], int addr_length)
       printf("Polaczono z %s:%d\n", addr, port);
    }
 
+    //ustalenie adresu klienta
+    getMyIp();
+    strcpy(tcpMsg, udpConnection.clientIpAddress);
+    send(TCPSocketFD , tcpMsg , strlen(tcpMsg) , 0);
    return 0;
 }
 
-int Connection::shutdownTcpConnection()
+int NetworkController::shutdownTcpConnection()
 {
    if (shutdown(TCPSocketFD, SHUT_RDWR))
    {
@@ -118,83 +132,104 @@ int Connection::shutdownTcpConnection()
    return 0;
 }
 
-void Connection::tcpSend()
+int NetworkController::udpConnect()
 {
   if(!isConnected)
   {
-    printf("Brak polaczenia.\n");
-    return;
+    printf("Brak połączenia TCP.\n");
+    return -1;
   }
-  int read_size;
-  while(1)
+  if(areUdpSocketsCreated)
+  {
+    printf("Połączenie UDP jest juz stworzone.\n");
+    return -1;
+  }
+  int readSize;
+  strcpy(tcpMsg, "connect");
+  if( send(TCPSocketFD , tcpMsg , strlen(tcpMsg) , 0) < 0)
     {
-        printf("Wpisz polecenie: ");
-          scanf("%s" , msg);
-
-        if(strcmp(msg,"connect") == 0)
-        {
-          createUdpSockets(50001);
-          initializeSockaddrStruct(50002);
-        }
-
-        if( send(TCPSocketFD , msg , strlen(msg) , 0) < 0)
-        {
-            puts("Wysylanie nie powiodlo sie\n");
-            return;
-        }
-         
-        if( (read_size = recv(TCPSocketFD , msg , 100 , 0)) < 0)
-        {
-            puts("Odbieranie nie powiodlo sie.\n");
-            break;
-        }
-        else if(strcmp(msg,"exitOK") == 0)
-        {
-          shutdownTcpConnection();
-          shutdownUdpConnection();
-          exit(0);
-        }
-        msg[read_size] = '\0';
-        printf("server: %s\n",msg);
+        printf("Tworzenie połączenia UDP nie powiodło się. Nie można wysłać żądania do serwera.\n");
+        return -1;
     }
+  if( (readSize = recv(TCPSocketFD , tcpMsg , 100 , 0)) < 0)
+    {
+        printf("Tworzenie połączenia UDP nie powiodło się. Nie otrzymano odpowiedzi z serwera.\n");
+        return -1;
+    }
+  tcpMsg[readSize] = '\0';
+  if(createUdpSockets(50001) != 0)
+    {
+        printf("Tworzenie połączenia UDP nie powiodło się. Nie udało się stworzyć gniazda UDP.\n");
+        return -1;
+    }
+  initializeSockaddrStruct(50002);
+  areUdpSocketsCreated = true;
+  printf("Połączenie UDP zostało poprawnie stworzone\n");
+  printf("Wiadomość z serwera: %s\n", tcpMsg);
+  return 0;
 }
 
-void Connection::tcpRecv()
+int NetworkController::endConnection()
+{
+  if(!isConnected)
+    exit(0);
+  int readSize;
+  strcpy(tcpMsg, "exit");
+  if( send(TCPSocketFD , tcpMsg , strlen(tcpMsg) , 0) < 0)
+    {
+        printf("Kończenie połączenia nie powiodło się. Nie można wysłać żądania do serwera.\n");
+        return -1;
+    }
+  if( (readSize = recv(TCPSocketFD , tcpMsg , 100 , 0)) < 0)
+    {
+        printf("Kończenie połączenia nie powiodło się. Nie otrzymano odpowiedzi z serwera.\n");
+        return -1;
+    }
+  tcpMsg[readSize] = '\0';
+  if(strcmp(tcpMsg,"exitOK") == 0)
+    {
+      shutdownTcpConnection();
+      shutdownUdpConnection();
+    }
+  else
+  {
+    printf("Kończenie połączenia nie powiodło się. Nie otrzymano potwierdzenia z serwera.\n");
+    return -1;
+  }
+  exit(0);
+}
+
+void NetworkController::tcpRecv()
 {
   if(!isConnected)
   {
     printf("Brak polaczenia.\n");
     return;
   }
-  int read_size;
-  while( (read_size = recv(TCPSocketFD , msg , 100 , 0)) > 0 )
+  int readSize;
+  while( (readSize = recv(TCPSocketFD , tcpMsg , 100 , 0)) > 0 )
     {
-      msg[read_size] = '\0';
-      if(strcmp(msg,"myUdpPorts") == 0)
-      {
-        //saveUdpPorts(msg);
-      }
-      if(strcmp(msg,"connect") == 0)
+      tcpMsg[readSize] = '\0';
+      if(strcmp(tcpMsg,"connect") == 0)
       {
         createUdpSockets(50002);
         initializeSockaddrStruct(50001);
-        sprintf(msg,"socketsOK::50002");
+        sprintf(tcpMsg,"UDP socket created. Bind with port 50002");
       }
-      else if(strcmp(msg,"exit") == 0)
+      else if(strcmp(tcpMsg,"exit") == 0)
       {
         endUdpCommunication = true;
-        strcpy(msg, "exitOK");
-        send(TCPSocketFD , msg , strlen(msg), 0);
+        strcpy(tcpMsg, "exitOK");
+        send(TCPSocketFD , tcpMsg , strlen(tcpMsg), 0);
         shutdownTcpConnection();
         shutdownUdpConnection();
-        break;
+        exit(0);
       }
-      send(TCPSocketFD , msg , strlen(msg), 0);
+      send(TCPSocketFD , tcpMsg , strlen(tcpMsg), 0);
     }
-    exit(0);
 }
 
-int Connection::createUdpSockets(int portRecv)
+int NetworkController::createUdpSockets(int portRecv)
 {
 
   udpConnection.myRecvSocket.port = portRecv;
@@ -232,18 +267,18 @@ int Connection::createUdpSockets(int portRecv)
     return 0;
 }
 
-int Connection::initializeSockaddrStruct(int port)
+int NetworkController::initializeSockaddrStruct(int port)
 {
   udpConnection.serverAddrRecv.sin_family = AF_INET;
   udpConnection.serverAddrRecv.sin_port = htons(port);
   if(isTcpClient)
-    inet_pton(AF_INET, udpConnection.clientIpAddress , &udpConnection.serverAddrRecv.sin_addr);
+    inet_pton(AF_INET, udpConnection.serverIpAddress , &udpConnection.serverAddrRecv.sin_addr);
   else
-    inet_pton(AF_INET, RECV_ADDR , &udpConnection.serverAddrRecv.sin_addr);
+    inet_pton(AF_INET, udpConnection.clientIpAddress , &udpConnection.serverAddrRecv.sin_addr);
   return 0;
 }
 
-int Connection::udpSend(BlockingQueue<Sample>& blockingQueue)
+int NetworkController::udpSend(BlockingQueue<Sample>& blockingQueue)
 {
   while(!endUdpCommunication)
   {
@@ -255,7 +290,7 @@ int Connection::udpSend(BlockingQueue<Sample>& blockingQueue)
   return 0;
 }
 
-int Connection::udpRecv(BlockingQueue<Sample>& blockingQueue)
+int NetworkController::udpRecv(BlockingQueue<Sample>& blockingQueue)
 {
   char buf[MAX_BUF];
   while(!endUdpCommunication)
@@ -275,7 +310,7 @@ int Connection::udpRecv(BlockingQueue<Sample>& blockingQueue)
   return 0;
 }
 
-int Connection::shutdownUdpConnection()
+int NetworkController::shutdownUdpConnection()
 {
    close(udpConnection.mySendSocketFD);
    close(udpConnection.myRecvSocket.socket);
@@ -284,10 +319,29 @@ int Connection::shutdownUdpConnection()
    return 0;
 }
 
+void NetworkController::getMyIp()
+{
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    const char* kGoogleDnsIp = "8.8.8.8";
+    uint16_t kDnsPort = 53;
+    struct sockaddr_in serv;
+    memset(&serv, 0, sizeof(serv));
+    serv.sin_family = AF_INET;
+    serv.sin_addr.s_addr = inet_addr(kGoogleDnsIp);
+    serv.sin_port = htons(kDnsPort);
+    int err = connect(sock, (const sockaddr*) &serv, sizeof(serv));
+    sockaddr_in name;
+    socklen_t namelen = sizeof(name);
+    err = getsockname(sock, (sockaddr*) &name, &namelen);
+    assert(err != -1);
+    char buffer[15];
+    strcpy(udpConnection.clientIpAddress, inet_ntop(AF_INET, &name.sin_addr, buffer, 15));
+    close(sock);
+}
 
 
 //funkcja pomocnicza
-void Connection::sampleFactory(BlockingQueue<Sample>& blockingQueue)
+void NetworkController::sampleFactory(BlockingQueue<Sample>& blockingQueue)
 {
   while(1)
   {

@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <ifaddrs.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,34 +50,37 @@ struct UdpConnection
    int mySendSocketFD;
    socketPort myRecvSocket;
    struct sockaddr_in serverAddrRecv;
-   struct sockaddr_in serverAddrSend;
    struct sockaddr_in myAddrRecv;
    char clientIpAddress[15];
+   char serverIpAddress[15];
 };
 
 
-class Connection
+class NetworkController
 {
 private:
    UdpConnection udpConnection;
    int TCPSocketFD; // gniazdo TCP
    int connFD;
-   char msg[1000];
+   char tcpMsg[100];
    bool isConnected;
+   bool areUdpSocketsCreated;
    bool isTcpClient;
    bool endUdpCommunication;
 public:;
-   Connection() { endUdpCommunication = isTcpClient = isConnected = false;}
+   NetworkController() { endUdpCommunication = isTcpClient = isConnected = areUdpSocketsCreated = false;}
    int tcpServer(int port);
-   int tcpClient(int port, char* addr, int addr_length);
+   int tcpClient(int port, char* addr, char addrFamily[4]);
    int shutdownTcpConnection();
    int shutdownUdpConnection();
-   void tcpSend();
+   int udpConnect();
+   int endConnection();
    void tcpRecv();
    int createUdpSockets(int portRecv);
    int udpSend(BlockingQueue<Sample>& blockingQueue);
    int udpRecv(BlockingQueue<Sample>& blockingQueue);
    int initializeSockaddrStruct(int port);
+   void getMyIp();
    //funkcja pomocnicza
    void sampleFactory(BlockingQueue<Sample>& blockingQueue);
 };
