@@ -4,11 +4,10 @@
 
 ClientApp::ClientApp(int port)
 {
-	audioPlayer = new AudioController();
-	audioRecorder = new AudioController();
+	audioPlayer = new AudioOutController();
+	audioRecorder = new AudioInController();
 	networkController = new NetworkController(this);
 	serverPort = port;
-	//initializeEnvironment();
 }
 
 ClientApp::~ClientApp()
@@ -18,7 +17,6 @@ ClientApp::~ClientApp()
 
 void ClientApp::commandHandler()
 {
-	//initializeEnvironment();
 	std::string input;
 	int connPort;
 	std::string connAddr;
@@ -29,11 +27,12 @@ void ClientApp::commandHandler()
 	mapStringValues["start call"] = 4;
 	mapStringValues["end call"] = 5;
 	mapStringValues["set TCP port"] = 6;
-
+	mapStringValues["help"] = 7;
+	mapStringValues["exit"] = 8;
+	std::cout << "Wpisz polecenie. Aby wyświetlić dostępne komendy wpisz 'help'" << std::endl;
 
 	while(true)
 	{
-		std::cout << "Wpisz polecenie" << std::endl;
 		std::getline(std::cin, input);
 
 
@@ -74,6 +73,18 @@ void ClientApp::commandHandler()
 				std::cout << "Podaj port nasłuchiwania:" << std::endl;
 				std::cin >> serverPort;
         		break;
+        	case 7:
+        		showCommands();
+        		break;
+        	case 8:
+        		audioPlayer->stopThread();
+				audioRecorder->stopThread();
+				networkController->stopSendUDPThread();
+				networkController->stopRecvUDPThread();
+				networkController->shutdownUdpConnection();
+				networkController->shutdownTcpConnection();
+				exit(0);
+				break;
         }
 
 	}
@@ -112,9 +123,9 @@ void ClientApp::startCallViaNet()
 	networkController->startSendUDPThread();
 	networkController->startRecvUDPThread();
     std::thread udpRecvThread(&NetworkController::udpRecv, networkController, std::ref(receiveQueue));
-    std::thread playAudioThread(&AudioController::playAudio, audioPlayer,std::ref(receiveQueue));
+    std::thread playAudioThread(&AudioOutController::playAudio, audioPlayer,std::ref(receiveQueue));
     std::thread udpSendThread(&NetworkController::udpSend, networkController, std::ref(sendQueue));
-    std::thread recordAudioThread(&AudioController::recordAudio, audioRecorder, std::ref(sendQueue));
+    std::thread recordAudioThread(&AudioInController::recordAudio, audioRecorder, std::ref(sendQueue));
     udpRecvThread.detach();
     playAudioThread.detach();
     udpSendThread.detach();
@@ -127,15 +138,10 @@ void ClientApp::endCallViaNet()
 	audioRecorder->stopThread();
 	networkController->stopSendUDPThread();
 	networkController->stopRecvUDPThread();
-	if(networkController->shutdownUdpConnection() != 0)
-	{
-		std::cout<<"Wystąpił problem z zamknięciem gniazd UDP, uruchom ponownie"<<std::endl;
-	}
-	if(networkController->shutdownTcpConnection() != 0)
-	{
-		std::cout<<"Wystąpił problem z zamknięciem gniazda TCP, uruchom ponownie"<<std::endl;
-	}
-	std::cout<<"Poprawnie rozłączono"<<std::endl;
+	networkController->shutdownUdpConnection();
+	networkController->shutdownTcpConnection();
+	networkController->tcpServer(serverPort);
+	std::cout<<"Koniec rozmowy"<<std::endl;
 }
 
 
@@ -159,3 +165,15 @@ void ClientApp::registerUser()
 		//TODO LATER	
 }
 
+void ClientApp::showCommands()
+{
+	std::cout<<"******************************"<<std::endl;
+	std::cout<<"******Available commands******"<<std::endl;
+	std::cout<<"******************************"<<std::endl;
+	std::cout<<"* connect to host            *"<<std::endl;
+	std::cout<<"* start call                 *"<<std::endl;
+	std::cout<<"* end call                   *"<<std::endl;
+	std::cout<<"* set TCP port               *"<<std::endl;
+	std::cout<<"* exit                       *"<<std::endl;
+	std::cout<<"******************************"<<std::endl;
+}

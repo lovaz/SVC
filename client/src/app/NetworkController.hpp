@@ -17,12 +17,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
+#include <fstream>
 
-//#include "ClientApp.hpp"
 #include "BlockingQueue.hpp"
 #include "Sample.hpp"
-
-#define MAX_BUF 1000000
 
 
 class ClientApp;
@@ -50,8 +49,9 @@ private:
    ClientApp* clientApp;
    UdpConnection udpConnection;
    int TCPSockSend;
-   int TCPSockRecv; // gniazdo TCP
+   int TCPSockRecv; 
    int connFD;
+   int error;
    char tcpMsg[100];
    bool isConnected;
    bool areUdpSocketsCreated;
@@ -60,27 +60,28 @@ private:
    bool sendUDPThread;
    bool passivSide;
    bool activSide;
+   std::fstream networkLog;
 
 public:
    NetworkController(ClientApp* clientApp);
+   ~NetworkController();
    int tcpServer(int port);
    int tcpClient(int port, char* addr, char addrFamily[4]);
    int shutdownTcpConnection();
    int shutdownUdpConnection();
    int udpConnect();
    int endConnection();
-   void tcpRecv();
    int createUdpSockets(int portRecv);
    int udpSend(BlockingQueue<Sample>& blockingQueue);
    int udpRecv(BlockingQueue<Sample>& blockingQueue);
    int initializeSockaddrStruct(int port);
+   void tcpRecv();
    void getMyIp();
    void stopSendUDPThread();
    void stopRecvUDPThread();
    void startSendUDPThread();
    void startRecvUDPThread();
    void reset();
-   //funkcja pomocnicza
    void sampleFactory(BlockingQueue<Sample>& blockingQueue);
 };
 
