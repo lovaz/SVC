@@ -1,21 +1,15 @@
-#include "AudioController.hpp"
+#include "ClientApp.hpp"
 #include <thread>
+#include <unistd.h>
+#include <pthread.h>
+#include <signal.h>
+
 
 int main(int argc, char** argv)
 {
-	BlockingQueue<Sample> blockingQueue;
-    AudioController* AC1 = new AudioController();
-    AudioController* AC2 = new AudioController();
-    AC1->initializeAudio();
-    AC1->openStream();
-    AC2->initializeAudio();
-    AC2->openStream();
-    std::thread t1(&AudioController::recordAudio, AC1,std::ref(blockingQueue));
-    std::thread t2(&AudioController::playAudio, AC2,std::ref(blockingQueue));
+    ClientApp* clientApp = new ClientApp(atoi(argv[1]));
+    std::thread t1(&ClientApp::commandHandler, clientApp);
+    clientApp->initializeEnvironment();
     t1.join();
-    t2.join();
-    AC1->closeAudio();
-    AC2->closeAudio();
-
-    return 0;
 }
+

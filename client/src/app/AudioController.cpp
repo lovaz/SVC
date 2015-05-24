@@ -7,25 +7,20 @@
 #include <string.h>
 #include <assert.h>
 
+//extern static bool run;
+
+
 AudioController::AudioController()
 {
-    int numBytes = FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE;
-    this->sampleBlock = (char*) malloc(numBytes);
-    this->record = (char*) malloc(numBytes*500);
-    if( sampleBlock == NULL )
-    {
-        printf("Could not allocate record array.\n");
-        exit(1);
-    }
-    clearBuffer(this->sampleBlock, numBytes);
+    int numBytes = FRAMES_PER_BUFFER;
+    clearBuffer(this->floatBlock, numBytes);
     stream = NULL;
-
-
+    threadRunning = false;
 }
 
 AudioController::~AudioController()
 {
-    free(sampleBlock);
+   // free(sampleBlock);
 }
 
 void AudioController::initializeAudio()
@@ -58,42 +53,6 @@ void AudioController::initializeAudio()
 
 void AudioController::IOAudioFunction()
 {
-        this->error = Pa_OpenStream(
-              &this->stream,
-              &this->inputParameters,
-              &this->outputParameters,
-              SAMPLE_RATE,
-              0,
-              paClipOff,      /* we won't output out of range samples so don't bother clipping them */
-              NULL, /* no callback, use blocking API */
-              NULL ); /* no callback, so no callback userData */
-
-   if(error != paNoError){puts("test1"); catchPa_Error();}
-   
-    fprintf( stdout, "Status: %s\n", Pa_GetErrorText(Pa_IsStreamActive(stream)) );
-
-    error = Pa_StartStream( stream );
-    if( error != paNoError ) catchPa_Error();
-
-    for(int i=0; i<100; i++)
-    {
-       error = Pa_ReadStream( stream, record+(i*FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE), FRAMES_PER_BUFFER );
-       if(error != paNoError){puts("testA"); catchPa_Error();}
-       
-    }
-    for (int j = 0; j< 102400; ++j)
-       {
-         printf("Value: %d\n", *(record+j));     
-       }
-
-    for(int i=0; i<100; i++)
-    {
-        error = Pa_WriteStream( stream, record+(i*FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE), FRAMES_PER_BUFFER );
-        if(error != paNoError){puts("testB"); catchPa_Error();}
-    }
-
-
-
     return;
 }
 
@@ -104,7 +63,7 @@ void AudioController::openStream()
               &this->inputParameters,
               &this->outputParameters,
               SAMPLE_RATE,
-              0,
+              FRAMES_PER_BUFFER,
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               NULL, /* no callback, use blocking API */
               NULL ); /* no callback, so no callback userData */
@@ -119,25 +78,25 @@ void AudioController::openStream()
 
 void AudioController::recordAudio(BlockingQueue<Sample> &blockingQueue)
 {
-     Sample testSample;
-
-    for(int i=0; i<300; i++)
+    Sample testSample;
+    while(threadRunning)
     {
-       error = Pa_ReadStream( stream, record+(FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE), FRAMES_PER_BUFFER );
-       if(error != paNoError){puts("testA"); catchPa_Error();}
-       testSample.setSample(record+(FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE));
+       error = Pa_ReadStream( stream, floatBlock, FRAMES_PER_BUFFER );
+       //if(error != paNoError){puts("testA"); catchPa_Error();}
+       testSample.setSample(floatBlock);
        blockingQueue.push(testSample);
+       //printf("nagrywam");
     }
     return;
 }
 
 void AudioController::playAudio(BlockingQueue<Sample> &blockingQueue)
 {
-  sleep(2);
-    for(int i=0; i<300; i++)
+    while(threadRunning)
     {
         error = Pa_WriteStream( stream, blockingQueue.pop().getSample(), FRAMES_PER_BUFFER );
-        if(error != paNoError){puts("testB"); catchPa_Error();}
+        //if(error != paNoError){puts("testB"); catchPa_Error();}
+        //printf("odtwarzam");
     }
     return;
 }
@@ -148,8 +107,8 @@ void AudioController::closeAudio()
     error = Pa_StopStream( stream );
     fprintf( stdout, "Status: %s\n", Pa_GetErrorText(Pa_IsStreamActive(stream)) );
     if( error != paNoError ) {puts("test2"); catchPa_Error();}
-    clearBuffer(sampleBlock, FRAMES_PER_BUFFER * NUM_CHANNELS * SAMPLE_SIZE);
-    free( sampleBlock );
+    clearBuffer(floatBlock, FRAMES_PER_BUFFER);
+    free( floatBlock );
     Pa_Terminate();
 
     return;
@@ -157,11 +116,11 @@ void AudioController::closeAudio()
 
 
 
-void AudioController::clearBuffer(char* buf, int size)
+void AudioController::clearBuffer(float* buf, int size)
 {
     for(int i=0;i<size ;i++)
     {
-        this->sampleBlock[i]= SAMPLE_SILENCE;
+        this->floatBlock[i]= SAMPLE_SILENCE;
     }
     return;
 }
@@ -172,11 +131,21 @@ void AudioController::catchPa_Error()
        Pa_AbortStream( stream );
        Pa_CloseStream( stream );
     }
-    free( sampleBlock );
+    free( floatBlock );
     Pa_Terminate();
     fprintf( stderr, "An error occured while using the portaudio stream\n" );
     fprintf( stderr, "Error number: %d\n", error );
     fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( error ) );
     exit(-666);
     
+}
+
+void AudioController::stopThread()
+{
+  threadRunning = false;
+}
+
+void AudioController::startThread()
+{
+  threadRunning = true;
 }
