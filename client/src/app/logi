@@ -1,0 +1,67 @@
+recv: CALL_ACCEPTED size: 13
+Gotowy aby zacząć rozmowę
+Wchodzisz andrzeju numer: 3
+end call
+wchodze czy nie wchodze?
+send: exit
+recv: EXIT_OK
+bardzo dobrze Andrzeju
+Koniec rozmowy
+Wchodzisz andrzeju numer: 4
+Andrzeju tędy!
+Czy rozpocząć rozmowę z 192.168.1.103? (t/n)
+t
+Zaakceptowano
+send: CALL_ACCEPTED
+Wpisz polecenie. Aby wyświetlić dostępne komendy wpisz 'help'
+Wchodzisz andrzeju numer: 1
+end call
+wchodze czy nie wchodze?
+oj źle Andrzeju2
+Koniec rozmowy
+Wchodzisz andrzeju numer: 2
+connect to host
+Podaj adres IP:
+192.168.1.103
+Podaj port:
+8989
+send: 192.168.1.103
+
+
+
+
+
+Zaakceptowano
+send: CALL_ACCEPTED
+Wpisz polecenie. Aby wyświetlić dostępne komendy wpisz 'help'
+Wchodzisz andrzeju numer: 1
+recv: exit
+send: EXIT_OK
+Koniec rozmowy
+connect to host
+Podaj adres IP:
+192.168.1.103
+Podaj port:
+7878
+Nie udało się połączyć
+Wchodzisz andrzeju numer: 2
+connect to host
+Podaj adres IP:
+192.168.1.103
+Podaj port:
+7979
+Nie udało się połączyć
+Wchodzisz andrzeju numer: 3
+connect to host
+Podaj adres IP:
+192.168.1.103
+Podaj port:
+8787
+send: 192.168.1.103
+recv: CALL_ACCEPTED size: 13
+Gotowy aby zacząć rozmowę
+Wchodzisz andrzeju numer: 4
+Andrzeju nie tędy droga
+
+
+

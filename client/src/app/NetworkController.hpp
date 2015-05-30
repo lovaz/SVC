@@ -46,6 +46,7 @@ struct UdpConnection
 class NetworkController
 {
 private:
+
    ClientApp* clientApp;
    UdpConnection udpConnection;
    int TCPSockSend;
@@ -58,15 +59,23 @@ private:
    bool isTcpClient;
    bool recvUDPThread;
    bool sendUDPThread;
+   bool recvTCPThread;
    bool passivSide;
    bool activSide;
+   bool isServerInitialized;
    std::fstream networkLog;
+   void writeLogErrno(std::string message);
+   void writeLog(std::string message);
+   void writeLog(std::string message, int value);
+   void writeLog(std::string message, char* msg);
 
 public:
+
    NetworkController(ClientApp* clientApp);
    ~NetworkController();
-   int tcpServer(int port);
-   int tcpClient(int port, char* addr, char addrFamily[4]);
+   int initTcpServer(int port);
+   int acceptTcpConnections(int port);
+   int tcpConnect(int port, char* addr, const char* addrFamily);
    int shutdownTcpConnection();
    int shutdownUdpConnection();
    int udpConnect();
@@ -79,9 +88,10 @@ public:
    void getMyIp();
    void stopSendUDPThread();
    void stopRecvUDPThread();
+   void stopRecvTCPThread();
    void startSendUDPThread();
    void startRecvUDPThread();
-   void reset();
+   void startRecvTCPThread();
    void sampleFactory(BlockingQueue<Sample>& blockingQueue);
 };
 

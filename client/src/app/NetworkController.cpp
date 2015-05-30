@@ -11,12 +11,15 @@ NetworkController::NetworkController(ClientApp* clientApp) : clientApp(clientApp
     areUdpSocketsCreated = false;
     recvUDPThread = false;
     sendUDPThread = false;
+    recvTCPThread = false;
+    isServerInitialized = false;
     networkLog.open("network.log", std::ios::out | std::ios::trunc);
     if(networkLog.good() != true)
     {
       std::cout << "Nie udało się otworzyć pliku network.log"<<std::endl;
     }
 }
+
 
 NetworkController::~NetworkController()
 {
@@ -27,94 +30,132 @@ NetworkController::~NetworkController()
 }
 
 
-
-int NetworkController::tcpServer(int port)
+int NetworkController::initTcpServer(int port)
 {
-    struct sockaddr_in stSockAddr;
-    connFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-
-    if(connFD == -1)
+    if(isServerInitialized == false)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpServer::Cannot create socket, errno: "<<errno<<std::endl;
-      }
-      return -1;
-    }
+      struct sockaddr_in stSockAddr;
+      connFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-    memset(&stSockAddr, 0, sizeof(stSockAddr));
+      if(connFD == -1)
+      {
+        writeLogErrno("initTcpServer::Cannot create socket");
+        return -1;
+      }
+
+      memset(&stSockAddr, 0, sizeof(stSockAddr));
     
-    stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
-    stSockAddr.sin_port = htons(port);                    //port
-    stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
+      stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
+      stSockAddr.sin_port = htons(port);                    //port
+      stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
    
-    if(bind(connFD,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
-    {
-      if(networkLog.good() == true)
+      if(bind(connFD,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
       {
-        networkLog<<"tcpServer::Cannot bind, errno: "<<errno<<std::endl;
+        writeLogErrno("initTcpServer::Cannot bind");
+        close(connFD);
+        return -1;
       }
-      close(connFD);
-      return -1;
+      isServerInitialized = true;
     }
-    
+
     if(-1 == listen(connFD, 10))
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpServer::Cannot listen, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("initTcpServer::Cannot listen");
       close(connFD);
       return -1;
     }
-    else
-    {
-      printf("Oczekuję na połączenie...\n");
-    }
-   
+    writeLog("initTcpServer::OK");
+    return 0;
+}
+
+
+
+int NetworkController::acceptTcpConnections(int port)
+{
+  while(1)
+  {
     TCPSockRecv = accept(connFD, NULL, NULL);
    
-    if(0 > TCPSockRecv)
+    if(TCPSockRecv < 0)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpServer::Cannot accept, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("tcpServer::Cannot accept");
       return -1;
     }
     else
     {
       isConnected = true;
-      printf("Polaczenie zaakceptowane.\n");
+      writeLog("tcpServer::Connection accepted");
     }
-    close(connFD);
+
     int readSize = recv(TCPSockRecv , tcpMsg , 100 , 0);
-    tcpMsg[readSize] = '\0';
-    strcpy(udpConnection.clientIpAddress, tcpMsg);
+    writeLog("tcp recv: ", tcpMsg);
+    std::string ip(tcpMsg, readSize);
     if(activSide == false)
     {
       passivSide = true;
-      tcpClient(port, udpConnection.clientIpAddress, "ipv4");
-    }
-    if(activSide == true)
-    {
-      if(strcmp(tcpMsg, udpConnection.serverIpAddress) != 0)
+
+      if(clientApp->acceptCall(ip) == 0)
+      {        
+        std::cout<<"Zaakceptowano"<<std::endl;
+        strcpy(udpConnection.clientIpAddress, tcpMsg);
+        strcpy(tcpMsg, "CALL_ACCEPTED");
+        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
+        writeLog("tcp send: ", tcpMsg);
+        writeLog("acceptTcpConnections::OK_connected");
+        clientApp->commandThread();
+
+        if(tcpConnect(port, &ip[0u], "ipv4") == 0)
+        {
+          startRecvTCPThread();
+          tcpRecv();
+        }
+        else
+        {
+          std::cout<<"Błąd połączenia"<<std::endl;
+          shutdownTcpConnection();
+        }
+      }
+      else
       {
-        close(TCPSockRecv);
+        std::cout<<"Odrzucono"<<std::endl;
+        strcpy(tcpMsg,"CALL_REFUSED");
+        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
+        writeLog("tcp send: ", tcpMsg);
+        shutdownTcpConnection();
+        writeLog("acceptTcpConnections::OK_refused");
+        clientApp->commandThread();
+        activSide = false;
+        passivSide = false;
+      }
+      memset(&tcpMsg[0], 0, sizeof(tcpMsg));
+    }
+    else
+    {  
+      char* IP = &ip[0u];
+      if(strcmp(IP, udpConnection.serverIpAddress) != 0)
+      {
+        shutdownTcpConnection();
+        writeLog("Unauthorized connection");
         return -1;
       }
+      else
+      {
+        strcpy(tcpMsg,"RETURN_ACCEPTED");
+        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
+        writeLog("tcp send: ", tcpMsg);
+        startRecvTCPThread();
+        tcpRecv();
+      }
     }
-    if(networkLog.good() == true)
-    {
-      networkLog<<"tcpServer::OK"<<std::endl;
-    }
-    return 0;
+  }
+  close(connFD);
+  return 0;
 }
 
-int NetworkController::tcpClient(int port, char addr[], char addrFamily[4])
+
+
+int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
 {
-    if(passivSide == false)
-    activSide = true;
     struct sockaddr_in stSockAddr;
     int Res;
     TCPSockSend = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -122,10 +163,7 @@ int NetworkController::tcpClient(int port, char addr[], char addrFamily[4])
     isTcpClient = true;
     if(TCPSockSend == -1)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpClient::Cannot create socket, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("initTcpClient::Cannot create socket");
       return -1;
     }
     
@@ -141,116 +179,180 @@ int NetworkController::tcpClient(int port, char addr[], char addrFamily[4])
     }
     else
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpClient::Invalid address family"<<std::endl;
-      }
+      writeLog("initTcpClient::Invalid address family");
       close(TCPSockSend);
-      return -1;
+      return -2;
     }
     stSockAddr.sin_port = htons(port);
     Res = inet_pton(AF_INET, addr, &stSockAddr.sin_addr);
     
     if (0 > Res)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpClient::Invalid address family"<<std::endl;
-      }
+      writeLog("initTcpClient::Invalid address family");
       close(TCPSockSend);
-      return -1;
+      return -2;
     }
     else if (0 == Res)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpClient::Invalid IP address"<<std::endl;
-      }
+      writeLog("initTcpClient::Invalid IP address");
       close(TCPSockSend);
-      return -1;
+      return -2;
     }
+    writeLog("initTcpClient::OK");
+
     if (-1 == connect(TCPSockSend, (struct sockaddr *)&stSockAddr, sizeof(stSockAddr)))
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"tcpClient::Cannot connect, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("tcpConnect::Cannot connect");
       close(TCPSockSend);
       return -1;
     }
     else
     {
       isConnected = true;
-      printf("Polaczono z %s:%d\n", addr, port);
+      writeLog("Connected");
     }
 
-    //ustalenie adresu klienta
     getMyIp();
     strcpy(tcpMsg, udpConnection.clientIpAddress);
     send(TCPSockSend , tcpMsg , strlen(tcpMsg) , 0);
-    if(networkLog.good() == true)
+    writeLog("tcp send: ", tcpMsg);
+
+    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
+  
+    int readSize = recv(TCPSockSend , tcpMsg , 100 , 0);
+    writeLog("tcp recv: ", tcpMsg);
+    tcpMsg[readSize] = '\0';
+
+    if(passivSide == false)
     {
-      networkLog<<"OK"<<std::endl;
+      if(strcmp(tcpMsg, "CALL_REFUSED") == 0)
+      {
+        writeLog("tcpConnect::OK_refused");
+        close(TCPSockSend);
+        activSide = false;
+        passivSide = false;
+        return 1;
+      }
+      else if(strcmp(tcpMsg, "CALL_ACCEPTED") == 0)
+      {
+        writeLog("tcpConnect::OK_accepted");
+        activSide = true;
+        passivSide = false;
+        return 0;
+      }
+      else
+      {
+        writeLog("Uknown server command");
+        close(TCPSockSend);
+        activSide = false;
+        passivSide = false;
+        return -1;
+      }
     }
-    return 0;
+
+    if(passivSide == true)
+    {
+      if(strcmp(tcpMsg, "RETURN_ACCEPTED") == 0)
+      {
+        writeLog("tcpConnect::OK_return_connection");
+        return 0;
+      }
+      else
+      {
+        writeLogErrno("tcpConnect::return_connection");
+        return -1;
+      }
+    }
+    return -1;
 }
 
 int NetworkController::shutdownTcpConnection()
 {
-    int ret1 = shutdown(TCPSockSend, SHUT_RDWR);
-    int ret2 = shutdown(TCPSockRecv, SHUT_RDWR);
-    if (ret1 || ret2)
+    int ret1 = -1;
+    int ret2 = -1;
+    writeLog("Sockets before shutdown:");
+    writeLog("TCPSockRecv: ", TCPSockRecv);
+    writeLog("TCPSockSend: ", TCPSockSend);
+    if(TCPSockSend > 0)
     {
-      if(networkLog.good() == true)
+      ret1 = shutdown(TCPSockSend, SHUT_RDWR);
+      writeLog("shutdown TCPSockSend returned: ", ret1);
+      TCPSockSend = 0;
+    }
+
+    if(TCPSockRecv > 0)
+    {
+      ret2 = shutdown(TCPSockRecv, SHUT_RDWR);
+      writeLog("shutdown TCPSockRecv returned: ", ret2);
+      TCPSockRecv = 0;
+    }
+
+    if( ret1 == -1 )
+    {
+      writeLogErrno("TCPSockSend failed");
+      if(TCPSockSend > 0)
       {
-        networkLog<<"Cannot close sockets, errno: "<<errno<<std::endl;
+        close(TCPSockSend);
+        TCPSockSend = 0;
       }
-      close(TCPSockSend);
-      close(TCPSockRecv);
       return -1;
     }
-    close(TCPSockRecv);
-    close(TCPSockSend);
+
+    if( ret2 == -1 )
+    {
+      writeLogErrno("TCPSockRecv failed");
+      if (TCPSockRecv > 0)
+      {
+        close(TCPSockRecv);
+        TCPSockRecv = 0;
+      }
+      return -1;
+    }
+
+    if(TCPSockSend > 0)
+    {
+      close(TCPSockSend);
+      TCPSockSend = 0;
+    }
+    if (TCPSockRecv > 0)
+    {
+      close(TCPSockRecv);
+      TCPSockRecv = 0;
+    }
+    writeLog("Shutdown done!");
     return 0;
 }
+
+
 
 int NetworkController::udpConnect()
 {
     if(!isConnected)
     {
-      printf("Brak połączenia TCP.\n");
-      return -1;
-    }
-    if(areUdpSocketsCreated)
-    {
-      printf("Połączenie UDP jest juz stworzone.\n");
+      std::cout<<"Brak połączenia TCP.\n";
       return -1;
     }
     int readSize;
-    strcpy(tcpMsg, "connect");
+    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
+    strcpy(tcpMsg, "udp_start");
     if(send(TCPSockSend , tcpMsg , strlen(tcpMsg) , 0) < 0)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot create UDP connection. Cannot send request to server, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("Cannot create UDP connection. Cannot send request to server");
       return -1;
     }
+    writeLog("tcp send: ", tcpMsg);
+    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
     if((readSize = recv(TCPSockSend , tcpMsg , 100 , 0)) < 0)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot create UDP connection. Cannot receieve from server, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("Cannot create UDP connection. Cannot receieve from server");
       return -1;
     }
     tcpMsg[readSize] = '\0';
-    if(createUdpSockets(50001) != 0)
+    writeLog("tcp recv: ", tcpMsg);
+
+    if(strcmp(tcpMsg, "UDP_OK") != 0)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot create UDP connection. Cannot create socket, errno: "<<errno<<std::endl;
-      }
+      writeLog("UDP error, server side!");
       return -1;
     }
     initializeSockaddrStruct(50002);
@@ -265,67 +367,80 @@ int NetworkController::endConnection()
       return 0;
     }
     int readSize;
+    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
     strcpy(tcpMsg, "exit");
+    activSide = false;
+    passivSide = false;
     if(send(TCPSockSend , tcpMsg , strlen(tcpMsg) , 0) < 0)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot end connection. Cannot send request to server, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("Connection ended immediatelly. Cannot send request to server");
+      stopRecvTCPThread();
+      shutdownTcpConnection();
       return -1;
     }
+    writeLog("tcp send: ", tcpMsg);
     if((readSize = recv(TCPSockSend , tcpMsg , 100 , 0)) < 0)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot end connection. Cannot receive from server, errno: "<<errno<<std::endl;
-      }
-    }
-    tcpMsg[readSize] = '\0';
-    if(strcmp(tcpMsg,"exitOK") == 0)
-    {
+      writeLogErrno("Connection ended immediatelly. Cannot receive from server");
+      stopRecvTCPThread();
       shutdownTcpConnection();
-      shutdownUdpConnection();
+      return -1;
+    }
+    writeLog("tcp recv: ", tcpMsg);
+    tcpMsg[readSize] = '\0';
+    if(strcmp(tcpMsg,"EXIT_OK") == 0)
+    {
+      stopRecvTCPThread();
+      shutdownTcpConnection();
+      return 0;
     }
     else
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot end connection. Cannot send request to server, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("Connection ended immediatelly, server side error");
+      return -1;
     }
+    areUdpSocketsCreated = false;
     return 0;
 }
 
 void NetworkController::tcpRecv()
 {
+  while(recvTCPThread)
+  {
     if(!isConnected)
     {
       printf("Brak polaczenia!\n");
       return;
     }
     int readSize;
+    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
     while((readSize = recv(TCPSockRecv , tcpMsg , 100 , 0)) > 0)
     {
+      writeLog("tcp recv: ", tcpMsg);
       tcpMsg[readSize] = '\0';
-      if(strcmp(tcpMsg,"connect") == 0)
+      if(strcmp(tcpMsg,"udp_start") == 0)
       {
-        createUdpSockets(50002);
-        initializeSockaddrStruct(50001);
-        sprintf(tcpMsg,"UDP socket created. Bind with port 50002");
+        initializeSockaddrStruct(50002);
+        strcpy(tcpMsg,"UDP_OK");
+        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
+        writeLog("tcp send: ", tcpMsg);
         clientApp->startCallViaNet();
-
       }
       else if(strcmp(tcpMsg,"exit") == 0)
       {
-        strcpy(tcpMsg, "exitOK");
+        strcpy(tcpMsg, "EXIT_OK");
         send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
+        writeLog("tcp send: ", tcpMsg);
         shutdownTcpConnection();
-        shutdownUdpConnection();
-        clientApp->endCallViaNet();
+        clientApp->stopAudio();
+        activSide = false;
+        passivSide = false;
+        return;
       }
-      send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
+      memset(&tcpMsg[0], 0, sizeof(tcpMsg));
     }
+  }
+  return;
 }
 
 int NetworkController::createUdpSockets(int portRecv)
@@ -336,20 +451,14 @@ int NetworkController::createUdpSockets(int portRecv)
     udpConnection.mySendSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
     if(udpConnection.mySendSocketFD == -1)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot create UDP socket, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("Cannot create UDP socket");
       return -1;
     }
 
     udpConnection.myRecvSocket.socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (udpConnection.myRecvSocket.socket == -1)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot create UDP socket, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("Cannot create UDP socket");
       return -1;
     }
 
@@ -358,10 +467,7 @@ int NetworkController::createUdpSockets(int portRecv)
     stSockAddr.sin_port = htons(udpConnection.myRecvSocket.port);
     if(bind(udpConnection.myRecvSocket.socket,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
     {
-      if(networkLog.good() == true)
-      {
-        networkLog<<"Cannot bind, errno: "<<errno<<std::endl;
-      }
+      writeLogErrno("Cannot bind");
       return -1;
     }
 
@@ -393,10 +499,7 @@ int NetworkController::udpSend(BlockingQueue<Sample>& blockingQueue)
       if(sendto(udpConnection.mySendSocketFD, buffer,FRAMES_PER_BUFFER * sizeof(float), 0, 
         (struct sockaddr*)&udpConnection.serverAddrRecv, sizeof(udpConnection.serverAddrRecv)) < 0)
       {
-        if(networkLog.good() == true)
-        {
-          networkLog<<"udpSend error, errno: "<<errno<<std::endl;
-        }
+        writeLogErrno("udpSend error");
       } 
     }
     return 0;
@@ -420,10 +523,7 @@ int NetworkController::udpRecv(BlockingQueue<Sample>& blockingQueue)
       }
       if(i < 0)
       {
-        if(networkLog.good() == true)
-        {
-          networkLog<<"udpRecv error, errno: "<<errno<<std::endl;
-        }
+        writeLogErrno("udpRecv error");
       }
     }
     return 0;
@@ -431,9 +531,15 @@ int NetworkController::udpRecv(BlockingQueue<Sample>& blockingQueue)
 
 int NetworkController::shutdownUdpConnection()
 {
+  if(udpConnection.mySendSocketFD > 0)
+  {
     close(udpConnection.mySendSocketFD);
+  }
+  if(udpConnection.myRecvSocket.socket > 0)
+  {
     close(udpConnection.myRecvSocket.socket);
-    return 0;
+  }
+  return 0;
 }
 
 void NetworkController::getMyIp()
@@ -468,6 +574,13 @@ void NetworkController::stopRecvUDPThread()
     recvUDPThread = false;
 }
 
+
+void NetworkController::stopRecvTCPThread()
+{
+    recvTCPThread = false;
+}
+
+
 void NetworkController::startSendUDPThread()
 {
     sendUDPThread = true;
@@ -479,38 +592,64 @@ void NetworkController::startRecvUDPThread()
     recvUDPThread = true;
 }
 
-void NetworkController::reset()
+
+void NetworkController::startRecvTCPThread()
 {
-    passivSide = false;
-    activSide = false;
-    isTcpClient = false;
-    isConnected = false;
-    areUdpSocketsCreated = false;
-    recvUDPThread = false;
-    sendUDPThread = false;
-    shutdownTcpConnection();
-    shutdownUdpConnection();
+    recvTCPThread = true;
 }
+
+
+void NetworkController::writeLogErrno(std::string message)
+{
+    if(networkLog.good() == true)
+    {
+      networkLog<<message<<", errno: "<<errno<<std::endl;
+    }
+}
+
+void NetworkController::writeLog(std::string message)
+{
+    if(networkLog.good() == true)
+    {
+      networkLog<<message<<std::endl;
+    }
+}
+
+void NetworkController::writeLog(std::string message, int value)
+{
+    if(networkLog.good() == true)
+    {
+      networkLog<<message<<value<<std::endl;
+    }
+}  
+
+void NetworkController::writeLog(std::string message, char* msg)
+{
+    if(networkLog.good() == true)
+    {
+      networkLog<<message<<msg<<std::endl;
+    }
+}  
 
 
 //funkcja pomocnicza
 void NetworkController::sampleFactory(BlockingQueue<Sample>& blockingQueue)
 {
   int i = 0;
-  while(1)
+  float* message = (float*)malloc(FRAMES_PER_BUFFER*sizeof(float));
+  while(++i < 100)
   {
     fflush(stdout);
     Sample sample;
-    float* message = (float*)malloc(FRAMES_PER_BUFFER*sizeof(float));
+    for(int j = 0; j<FRAMES_PER_BUFFER; j++)
     {
-      message[i] = 0.00001 * i;
+      message[j] = 0.00001 * j;
     }
     sample.setSample(message);
-    if(message!=NULL)
-      free(message);
     blockingQueue.push(sample);
-    sleep(2);
+    sleep(1);
   }
+  free(message);
 }
 
 

@@ -31,6 +31,14 @@ public:
 		blockingQueue.pop();
 		return item;
 	}
+	void clear()
+	{
+		std::unique_lock<std::mutex> mlock(bqMutex);
+		std::queue<T> empty;
+		std::swap(blockingQueue, empty);
+		mlock.unlock();
+		bqCond.notify_one();
+	}
 };
 
 #endif

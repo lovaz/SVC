@@ -115,7 +115,7 @@ void AudioOutController::closeAudio()
     }
     clearBuffer(sampleBlock, FRAMES_PER_BUFFER);
     free(sampleBlock);
-    Pa_Terminate();
+   // Pa_Terminate();
     return;
 }
 

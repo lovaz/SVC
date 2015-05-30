@@ -1,0 +1,5 @@
+#!/bin/bash
+
+scons
+rm /home/marcin/VB_shared/SVC/client/build/client
+cp /home/marcin/TIN/SVC/client/build/client /home/marcin/VB_shared/SVC/client/build/

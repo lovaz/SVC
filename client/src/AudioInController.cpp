@@ -90,8 +90,10 @@ void AudioInController::openStream()
 void AudioInController::recordAudio(BlockingQueue<Sample> &blockingQueue)
 {
     Sample testSample;
+    std::cout<<"THREAD RUNNING: "<<threadRunning<<std::endl;
     while(threadRunning)
     {
+      std::cout<<"nagrywam";
       this->error = Pa_ReadStream(stream, sampleBlock, FRAMES_PER_BUFFER);
       if(this->error != paNoError) 
       {
@@ -118,7 +120,7 @@ void AudioInController::closeAudio()
     }
     clearBuffer(sampleBlock, FRAMES_PER_BUFFER);
     free(sampleBlock);
-    Pa_Terminate();
+   // Pa_Terminate();
     return;
 }
 
