@@ -18,11 +18,13 @@ private:
 	BlockingQueue<Sample> receiveQueue;
 	bool serverConnected;
 	bool hostConnected;
+	bool natConnected;
 	bool callInProgres;
 	int serverPort;
 	pthread_t thread;
 	int connectToHost(std::string addr, int port);
-	void connectToServer();
+	int connectToServer(std::string addr, int port, std::string logg);
+	int connectToHostViaServer(std::string login);
 
 public:
 
@@ -32,11 +34,12 @@ public:
 	void initializeEnvironment();
 	void startCallViaNet();
 	void endCallViaNet();
-	void startCallViaServer();
-	void endCallViaServer();
+	void startCallViaNat();
+	void endCallViaNat();
 	void commandThread();
 	void threadCancel();
-	void stopAudio();
+	void stopTransmission();
+	void stopNatTransmission();
 	void conToHostEvent();
 	void conToServEvent();
 	void disconFromServerEvent();
@@ -44,8 +47,11 @@ public:
 	void startCallEvent();
 	void helpEvent();
 	void exitEvent();
+	void logoutEvent();
 	void checkCIN(std::string msg);
 	int acceptCall(std::string ip);
+	int acceptCall(char* login);
+	 void resetApp(){}
 };
 
 

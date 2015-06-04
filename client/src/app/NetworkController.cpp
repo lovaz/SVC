@@ -44,7 +44,7 @@ int NetworkController::initTcpServer(int port)
       }
 
       memset(&stSockAddr, 0, sizeof(stSockAddr));
-    
+      
       stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
       stSockAddr.sin_port = htons(port);                    //port
       stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
@@ -57,7 +57,6 @@ int NetworkController::initTcpServer(int port)
       }
       isServerInitialized = true;
     }
-
     if(-1 == listen(connFD, 10))
     {
       writeLogErrno("initTcpServer::Cannot listen");
@@ -72,6 +71,7 @@ int NetworkController::initTcpServer(int port)
 
 int NetworkController::acceptTcpConnections(int port)
 {
+  char tcpMsg[100];
   while(1)
   {
     TCPSockRecv = accept(connFD, NULL, NULL);
@@ -87,21 +87,15 @@ int NetworkController::acceptTcpConnections(int port)
       writeLog("tcpServer::Connection accepted");
     }
 
-    int readSize = recv(TCPSockRecv , tcpMsg , 100 , 0);
-    writeLog("tcp recv: ", tcpMsg);
-    std::string ip(tcpMsg, readSize);
+    recvTCP(TCPSockRecv, tcpMsg, 100, "acceptTcpConnections");
+    std::string ip(tcpMsg, strlen(tcpMsg));
     if(activSide == false)
     {
       passivSide = true;
 
       if(clientApp->acceptCall(ip) == 0)
       {        
-        std::cout<<"Zaakceptowano"<<std::endl;
-        strcpy(udpConnection.clientIpAddress, tcpMsg);
-        strcpy(tcpMsg, "CALL_ACCEPTED");
-        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
-        writeLog("tcp send: ", tcpMsg);
-        writeLog("acceptTcpConnections::OK_connected");
+        sendTCP(TCPSockRecv, "CALL_ACCEPTED", "acceptTcpConnections");
         clientApp->commandThread();
 
         if(tcpConnect(port, &ip[0u], "ipv4") == 0)
@@ -117,12 +111,8 @@ int NetworkController::acceptTcpConnections(int port)
       }
       else
       {
-        std::cout<<"Odrzucono"<<std::endl;
-        strcpy(tcpMsg,"CALL_REFUSED");
-        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
-        writeLog("tcp send: ", tcpMsg);
+        sendTCP(TCPSockRecv, "CALL_REFUSED", "acceptTcpConnections");
         shutdownTcpConnection();
-        writeLog("acceptTcpConnections::OK_refused");
         clientApp->commandThread();
         activSide = false;
         passivSide = false;
@@ -132,7 +122,7 @@ int NetworkController::acceptTcpConnections(int port)
     else
     {  
       char* IP = &ip[0u];
-      if(strcmp(IP, udpConnection.serverIpAddress) != 0)
+      if(strcmp(IP, serverIPAddress) != 0)
       {
         shutdownTcpConnection();
         writeLog("Unauthorized connection");
@@ -140,9 +130,7 @@ int NetworkController::acceptTcpConnections(int port)
       }
       else
       {
-        strcpy(tcpMsg,"RETURN_ACCEPTED");
-        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
-        writeLog("tcp send: ", tcpMsg);
+        sendTCP(TCPSockRecv, "RETURN_ACCEPTED", "acceptTcpConnections");
         startRecvTCPThread();
         tcpRecv();
       }
@@ -152,21 +140,128 @@ int NetworkController::acceptTcpConnections(int port)
   return 0;
 }
 
-
-
-int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
+int NetworkController::connectServer(int port, char* addr, char* login)
 {
+    char tcpMsg[100];
     struct sockaddr_in stSockAddr;
     int Res;
     TCPSockSend = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-    strcpy(udpConnection.serverIpAddress,addr);
-    isTcpClient = true;
+    TCPSockRecv = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    strcpy(serverIPAddress,addr);
+    if(TCPSockSend == -1)
+    {
+      writeLogErrno("connectServer::Cannot create socket");
+      return -1;
+    }
+    if(TCPSockRecv == -1)
+    {
+      writeLogErrno("connectServer::Cannot create socket");
+      return -1;
+    }
+    
+    memset(&stSockAddr, 0, sizeof(stSockAddr));
+    stSockAddr.sin_family = AF_INET;
+    stSockAddr.sin_port = htons(port);
+    Res = inet_pton(AF_INET, addr, &stSockAddr.sin_addr);
+    if (0 > Res)
+    {
+      writeLog("connectServer::Invalid address family");
+      close(TCPSockSend);
+      return -2;
+    }
+    else if (0 == Res)
+    {
+      writeLog("connectServer::Invalid IP address");
+      close(TCPSockSend);
+      return -2;
+    }
+    writeLog("init connectServer::OK");
+    if (-1 == connect(TCPSockSend, (struct sockaddr *)&stSockAddr, sizeof(stSockAddr)))
+    {
+      writeLogErrno("connectServer::Cannot connect first time");
+      close(TCPSockSend);
+      return -1;
+    }
+    else
+    {
+      isConnected = true;
+      writeLog("Connected to server first time");
+    }
+    std::string one("1");
+    std::string firstLogin = one+login;
+    sendTCP(TCPSockSend, &firstLogin[0u], "connectServer");
+    recvTCP(TCPSockSend, tcpMsg, 10, "connectServer");
+    if(strcmp(tcpMsg, "LOGIN_OK") == 0)
+    {
+      if (connect(TCPSockRecv, (struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
+      {
+        writeLogErrno("connectServer::Cannot connect second time");
+        close(TCPSockSend);
+        return -1;
+      }
+      else
+      {
+        isConnected = true;
+        writeLog("Connected to server first time");
+      }
+      std::string two("2");
+      std::string secondLogin = two+login;
+      sendTCP(TCPSockRecv, &secondLogin[0u], "connectServer");
+      recvTCP(TCPSockRecv, tcpMsg, 9, "connectServer");
+      unsigned int slen = sizeof(serverAddr);
+      if(strcmp(tcpMsg, "CONNECTED") == 0)
+      {
+        int port1;
+        sendTCP(TCPSockRecv, "PORTREQ", "connectServer");
+        if(recv(TCPSockRecv, &port1, sizeof(port1), 0) == -1)
+        {
+          writeLogErrno("recv host addres");
+          return -1;
+        }
+        /* Sending udp end point to server */
+        if((holePunchSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==-1) 
+        {
+          shutdownTcpConnection();
+          return -1;
+        }
+        memset((char *) &serverAddr, 0, sizeof(serverAddr));
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_port = htons(port1);
+        inet_aton(addr, &serverAddr.sin_addr);
+        if(sendto(holePunchSocket, "0101010101", 10, 0, (struct sockaddr*)(&serverAddr), slen) == -1) 
+        {
+          shutdownTcpConnection();
+          return -1;
+        }
+        std::thread recvFromServerThread(&NetworkController::tcpRecvFromServer, this);
+        recvFromServerThread.detach();
+      }
+      else
+      {
+        writeLog("server connection error");
+        return -1;
+      }
+      return 0;
+    }
+    else
+    {
+      return -1;
+    }
+}
+
+int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
+{
+    char tcpMsg[100];
+    struct sockaddr_in stSockAddr;
+    int res;
+    TCPSockSend = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(TCPSockSend == -1)
     {
       writeLogErrno("initTcpClient::Cannot create socket");
       return -1;
     }
-    
+    strcpy(serverIPAddress,addr);
+
     memset(&stSockAddr, 0, sizeof(stSockAddr));
    
     if(strcmp(addrFamily, "ipv4") == 0)
@@ -183,16 +278,17 @@ int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
       close(TCPSockSend);
       return -2;
     }
+
     stSockAddr.sin_port = htons(port);
-    Res = inet_pton(AF_INET, addr, &stSockAddr.sin_addr);
+    res = inet_pton(AF_INET, addr, &stSockAddr.sin_addr);
     
-    if (0 > Res)
+    if(res < 0)
     {
       writeLog("initTcpClient::Invalid address family");
       close(TCPSockSend);
       return -2;
     }
-    else if (0 == Res)
+    else if(res == 0)
     {
       writeLog("initTcpClient::Invalid IP address");
       close(TCPSockSend);
@@ -200,7 +296,7 @@ int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
     }
     writeLog("initTcpClient::OK");
 
-    if (-1 == connect(TCPSockSend, (struct sockaddr *)&stSockAddr, sizeof(stSockAddr)))
+    if(connect(TCPSockSend, (struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
     {
       writeLogErrno("tcpConnect::Cannot connect");
       close(TCPSockSend);
@@ -213,15 +309,8 @@ int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
     }
 
     getMyIp();
-    strcpy(tcpMsg, udpConnection.clientIpAddress);
-    send(TCPSockSend , tcpMsg , strlen(tcpMsg) , 0);
-    writeLog("tcp send: ", tcpMsg);
-
-    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
-  
-    int readSize = recv(TCPSockSend , tcpMsg , 100 , 0);
-    writeLog("tcp recv: ", tcpMsg);
-    tcpMsg[readSize] = '\0';
+    sendTCP(TCPSockSend, myIPAddress, "tcpConnect");
+    recvTCP(TCPSockSend, tcpMsg, 15, "tcpConnect");
 
     if(passivSide == false)
     {
@@ -271,276 +360,502 @@ int NetworkController::shutdownTcpConnection()
     int ret1 = -1;
     int ret2 = -1;
     writeLog("Sockets before shutdown:");
-    writeLog("TCPSockRecv: ", TCPSockRecv);
-    writeLog("TCPSockSend: ", TCPSockSend);
+    writeLogInt("TCPSockRecv: ", TCPSockRecv);
+    writeLogInt("TCPSockSend: ", TCPSockSend);
     if(TCPSockSend > 0)
     {
       ret1 = shutdown(TCPSockSend, SHUT_RDWR);
-      writeLog("shutdown TCPSockSend returned: ", ret1);
+      writeLogInt("shutdown TCPSockSend returned: ", ret1);
       TCPSockSend = 0;
+      if( ret1 == -1 )
+      {
+        writeLogErrno("TCPSockSend failed");
+        if(TCPSockSend > 0)
+        {
+          close(TCPSockSend);
+          TCPSockSend = 0;
+        };
+      }
     }
 
     if(TCPSockRecv > 0)
     {
       ret2 = shutdown(TCPSockRecv, SHUT_RDWR);
-      writeLog("shutdown TCPSockRecv returned: ", ret2);
+      writeLogInt("shutdown TCPSockRecv returned: ", ret2);
       TCPSockRecv = 0;
-    }
-
-    if( ret1 == -1 )
-    {
-      writeLogErrno("TCPSockSend failed");
-      if(TCPSockSend > 0)
+      if( ret2 == -1 )
       {
-        close(TCPSockSend);
-        TCPSockSend = 0;
+        writeLogErrno("TCPSockRecv failed");
+        if (TCPSockRecv > 0)
+        {
+          close(TCPSockRecv);
+          TCPSockRecv = 0;
+        };
       }
-      return -1;
     }
 
-    if( ret2 == -1 )
-    {
-      writeLogErrno("TCPSockRecv failed");
-      if (TCPSockRecv > 0)
-      {
-        close(TCPSockRecv);
-        TCPSockRecv = 0;
-      }
-      return -1;
-    }
-
-    if(TCPSockSend > 0)
-    {
-      close(TCPSockSend);
-      TCPSockSend = 0;
-    }
-    if (TCPSockRecv > 0)
-    {
-      close(TCPSockRecv);
-      TCPSockRecv = 0;
-    }
     writeLog("Shutdown done!");
     return 0;
 }
 
 
 
-int NetworkController::udpConnect()
+int NetworkController::startUDPNetTransmission()
 {
+    char tcpMsg[100];
     if(!isConnected)
     {
       std::cout<<"Brak połączenia TCP.\n";
       return -1;
     }
-    int readSize;
-    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
-    strcpy(tcpMsg, "udp_start");
-    if(send(TCPSockSend , tcpMsg , strlen(tcpMsg) , 0) < 0)
-    {
-      writeLogErrno("Cannot create UDP connection. Cannot send request to server");
-      return -1;
-    }
-    writeLog("tcp send: ", tcpMsg);
-    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
-    if((readSize = recv(TCPSockSend , tcpMsg , 100 , 0)) < 0)
-    {
-      writeLogErrno("Cannot create UDP connection. Cannot receieve from server");
-      return -1;
-    }
-    tcpMsg[readSize] = '\0';
-    writeLog("tcp recv: ", tcpMsg);
-
+    sendTCP(TCPSockSend, "udp_start", "startUDPNetTransmission");
+    recvTCP(TCPSockSend, tcpMsg, 10, "startUDPNetTransmission");
     if(strcmp(tcpMsg, "UDP_OK") != 0)
     {
       writeLog("UDP error, server side!");
       return -1;
     }
-    initializeSockaddrStruct(50002);
+    setServerAddr(50002);
     areUdpSocketsCreated = true;
     return 0;
 }
 
-int NetworkController::endConnection()
+int NetworkController::startUDPNatTransmission()
 {
-    if(!isConnected)
+    char tcpMsg[100];
+    sendTCP(TCPSockSend, "start_call", "startUDPNatTransmission");
+    recvTCP(TCPSockSend, tcpMsg, 8, "startUDPNatTransmission");
+    if(strcmp(tcpMsg, "STARTOK") == 0)
     {
-      return 0;
-    }
-    int readSize;
-    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
-    strcpy(tcpMsg, "exit");
-    activSide = false;
-    passivSide = false;
-    if(send(TCPSockSend , tcpMsg , strlen(tcpMsg) , 0) < 0)
-    {
-      writeLogErrno("Connection ended immediatelly. Cannot send request to server");
-      stopRecvTCPThread();
-      shutdownTcpConnection();
-      return -1;
-    }
-    writeLog("tcp send: ", tcpMsg);
-    if((readSize = recv(TCPSockSend , tcpMsg , 100 , 0)) < 0)
-    {
-      writeLogErrno("Connection ended immediatelly. Cannot receive from server");
-      stopRecvTCPThread();
-      shutdownTcpConnection();
-      return -1;
-    }
-    writeLog("tcp recv: ", tcpMsg);
-    tcpMsg[readSize] = '\0';
-    if(strcmp(tcpMsg,"EXIT_OK") == 0)
-    {
-      stopRecvTCPThread();
-      shutdownTcpConnection();
       return 0;
     }
     else
     {
-      writeLogErrno("Connection ended immediatelly, server side error");
       return -1;
     }
-    areUdpSocketsCreated = false;
-    return 0;
 }
+
+
+
+void NetworkController::sendTCP(int sock, const char* msg, const char* function)
+{
+    if(send(sock, msg, strlen(msg), 0) == -1)
+    {
+      std::cout<<"network error"<<std::endl;
+      writeLogErrno("sendTCP error", function);
+    }
+    else
+    {
+      char msg2[100];
+      strcpy(msg2, msg);
+      writeLog("sendTCP: ", msg2);
+    }
+}
+
+int NetworkController::recvTCP(int sock, char *msg, int size, const char* function)
+{
+    int readSize = 0;
+    memset(&msg[0], 0, 100*sizeof(char));
+    readSize = recv(sock, msg, size, 0);
+    if(readSize == -1)
+    {
+      std::cout<<"network error"<<std::endl;
+      writeLogErrno("recvTCP error", function);
+    }
+    else if(readSize > 0)
+    {
+      msg[readSize] = '\0';
+      writeLog("recvTCP: ", msg); 
+    }
+    return readSize;
+}
+
+void NetworkController::endNatConnection()
+{
+    char tcpMsg[100];
+    if(!isConnected)
+    {
+      return;
+    }
+    sendTCP(TCPSockSend, "end_call", "endConnection");
+    recvTCP(TCPSockSend, tcpMsg, 10, "endConnection");
+    if(strcmp(tcpMsg,"ENDOK") == 0)
+    {
+      writeLog("connection ended succesfully");
+    }
+    else
+    {
+      writeLog("connection ended with errors");
+    }
+    sendKillPackets(1);
+}
+
+void NetworkController::endNetConnection()
+{
+    char tcpMsg[100];
+    if(!isConnected)
+    {
+      return;
+    }
+    activSide = false;
+    passivSide = false;
+    sendTCP(TCPSockSend, "end_call", "endConnection");
+    recvTCP(TCPSockSend, tcpMsg, 10, "endConnection");
+    if(strcmp(tcpMsg,"ENDOK") == 0)
+    {
+      writeLog("connection ended succesfully");
+    }
+    else
+    {
+      writeLog("connection ended with errors");
+    }
+    sendKillPackets(0);
+    stopRecvTCPThread();
+    shutdownTcpConnection();
+}
+
 
 void NetworkController::tcpRecv()
 {
   while(recvTCPThread)
   {
+    char tcpMsg[100];
     if(!isConnected)
     {
       printf("Brak polaczenia!\n");
       return;
     }
-    int readSize;
-    memset(&tcpMsg[0], 0, sizeof(tcpMsg));
-    while((readSize = recv(TCPSockRecv , tcpMsg , 100 , 0)) > 0)
+    while(recvTCP(TCPSockRecv , tcpMsg , 10, "tcpRecv") > 0)
     {
-      writeLog("tcp recv: ", tcpMsg);
-      tcpMsg[readSize] = '\0';
       if(strcmp(tcpMsg,"udp_start") == 0)
       {
-        initializeSockaddrStruct(50002);
-        strcpy(tcpMsg,"UDP_OK");
-        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
-        writeLog("tcp send: ", tcpMsg);
+        setServerAddr(50002);
+        sendTCP(TCPSockRecv, "UDP_OK", "tcpRecv");
         clientApp->startCallViaNet();
       }
-      else if(strcmp(tcpMsg,"exit") == 0)
+      else if(strcmp(tcpMsg,"enc_call") == 0)
       {
-        strcpy(tcpMsg, "EXIT_OK");
-        send(TCPSockRecv , tcpMsg , strlen(tcpMsg), 0);
-        writeLog("tcp send: ", tcpMsg);
+        clientApp->stopTransmission();
+        sendTCP(TCPSockRecv, "ENDOK", "tcpRecv");
         shutdownTcpConnection();
-        clientApp->stopAudio();
+        sendKillPackets(0);
         activSide = false;
         passivSide = false;
         return;
       }
-      memset(&tcpMsg[0], 0, sizeof(tcpMsg));
     }
+    shutdownTcpConnection();
+    stopRecvTCPThread();
   }
   return;
 }
 
-int NetworkController::createUdpSockets(int portRecv)
+void NetworkController::tcpRecvFromServer()
 {
-    udpConnection.myRecvSocket.port = portRecv;
+  char tcpMsg[100];
+  while(recvTCP(TCPSockRecv, tcpMsg, 8, "tcpRecvFromServer") > 0)
+  {
+    if(tcpMsg[0] == '_')
+    {
+      if(clientApp->acceptCall(tcpMsg) == 0)
+      {        
+        sendTCP(TCPSockRecv, "ACCEPTED", "tcpRecvFromServer");
+        clientApp->commandThread();
+      }
+      else
+      {
+        sendTCP(TCPSockRecv, "REFUSEDD", "tcpRecvFromServer");
+        clientApp->commandThread();
+      }
+    }
+    else if(strcmp(tcpMsg, "ENDPOINT") == 0)
+    {
+      if(recvHolePunchData(TCPSockRecv) != 0)
+      {
+        exit(-1000);
+      }
+      std::cout<<"Gotowy aby rozpocząć rozmowę"<<std::endl;
+    }
+    else if(strcmp(tcpMsg, "ENDDCALL") == 0)
+    {
+      clientApp->stopNatTransmission();
+      sendKillPackets(1);
+      
+    }
+    else if(strcmp(tcpMsg, "STARTCAL") == 0)
+    {
+      clientApp->startCallViaNat();
+    }
+}
 
+  return;
+}
+
+
+int NetworkController::recvHolePunchData(int sock)
+{
+    int host;
+    short port;
+    if(recv(sock, &host, sizeof(host), 0) == -1)
+    {
+      writeLogErrno("recv host addres");
+      return -1;
+    }
+    writeLogInt("host endpoint addres: ", host);
+    if(recv(sock, &port, sizeof(port), 0) == -1)
+    {
+      writeLogErrno("recv host port");
+      return -1;
+    }
+    writeLogInt("host endpoint port: ", port);
+    setHolePunchAddr(host, port);
+    return 0;
+}
+
+void NetworkController::logoutFromServer()
+{
+    sendTCP(TCPSockSend, "exit", "logoutFromServer");
+}
+
+void NetworkController::getUsersList()
+{
+    char tcpMsg[100];
+    sendTCP(TCPSockSend, "list", "getUsersList");
+    recvTCP(TCPSockSend, tcpMsg, 100, "getUsersList");
+    if(strcmp(tcpMsg, "LIST") == 0)
+    {
+      std::cout<<"Użytkownicy na serwerze:"<<std::endl;
+      while(strcmp(tcpMsg, "LISTEND") != 0)
+      {
+        sendTCP(TCPSockSend, "GETNEXT", "getUsersList");
+        recvTCP(TCPSockSend, tcpMsg, 100, "getUsersList");
+        if(strcmp(tcpMsg, "LISTEND") != 0)
+        {
+          std::cout<<tcpMsg<<std::endl;
+        }
+        else
+        {
+          std::cout<<"koniec listy"<<std::endl;
+        }
+      }
+    }
+    return;
+}
+
+
+int NetworkController::callPeerRequest(std::string login)
+{
+    char tcpMsg[100];
+    std::string str = '_' + login;
+    sendTCP(TCPSockSend, &str[0u], "callPeerRequest");
+    recvTCP(TCPSockSend, tcpMsg, 8, "callPeerRequest");
+    if(strcmp(tcpMsg, "ENDPOINT") == 0)
+    {    
+      if(recvHolePunchData(TCPSockSend) != 0)
+      {
+        shutdownTcpConnection();
+        return -1;
+      }
+      return 0;
+    }
+    else if(strcmp(tcpMsg, "REFUSEDD") == 0)
+    {
+      return 1;
+    }
+    else if(strcmp(tcpMsg, "NOTAVAIL") == 0)
+    {
+      return 2;
+    }
+    return -1;
+}
+
+int NetworkController::createUdpSocket(int portRecv)
+{
+    bindedUDPSocket.port = portRecv;
     struct sockaddr_in stSockAddr;
-    udpConnection.mySendSocketFD = socket(AF_INET, SOCK_DGRAM, 0);
-    if(udpConnection.mySendSocketFD == -1)
+    bindedUDPSocket.socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if(bindedUDPSocket.socket == -1)
     {
       writeLogErrno("Cannot create UDP socket");
       return -1;
     }
-
-    udpConnection.myRecvSocket.socket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (udpConnection.myRecvSocket.socket == -1)
-    {
-      writeLogErrno("Cannot create UDP socket");
-      return -1;
-    }
-
     stSockAddr.sin_family = AF_INET;
     stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    stSockAddr.sin_port = htons(udpConnection.myRecvSocket.port);
-    if(bind(udpConnection.myRecvSocket.socket,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
+    stSockAddr.sin_port = htons(bindedUDPSocket.port);
+    if(bind(bindedUDPSocket.socket,
+      (struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
     {
       writeLogErrno("Cannot bind");
       return -1;
     }
-
     fflush(stdout);
     return 0;
 }
 
-int NetworkController::initializeSockaddrStruct(int port)
+void NetworkController::setHolePunchAddr(int host, short port)
 {
-    udpConnection.serverAddrRecv.sin_family = AF_INET;
-    udpConnection.serverAddrRecv.sin_port = htons(port);
-    if(isTcpClient)
+    holePunchAddr.sin_family = AF_INET;
+    holePunchAddr.sin_addr.s_addr = host; 
+    holePunchAddr.sin_port = port;
+
+}
+
+void NetworkController::setServerAddr(int port)
+{
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(port);
+    inet_pton(AF_INET, serverIPAddress , &serverAddr.sin_addr);
+}
+
+int NetworkController::udpSend(BlockingQueue<Sample>& blockingQueue, int mode)
+{
+    int sock;
+    struct sockaddr_in addr;
+    if(mode == 0)
     {
-      inet_pton(AF_INET, udpConnection.serverIpAddress , &udpConnection.serverAddrRecv.sin_addr);
+      sock = bindedUDPSocket.socket;
+      addr = serverAddr;
     }
     else
     {
-      inet_pton(AF_INET, udpConnection.clientIpAddress , &udpConnection.serverAddrRecv.sin_addr);
+      sock = holePunchSocket;
+      addr = holePunchAddr;
     }
-    return 0;
-}
-
-int NetworkController::udpSend(BlockingQueue<Sample>& blockingQueue)
-{
     float buffer[FRAMES_PER_BUFFER];
     while(sendUDPThread)
     {
       memcpy(buffer,blockingQueue.pop().getSample(), sizeof(buffer));
-      if(sendto(udpConnection.mySendSocketFD, buffer,FRAMES_PER_BUFFER * sizeof(float), 0, 
-        (struct sockaddr*)&udpConnection.serverAddrRecv, sizeof(udpConnection.serverAddrRecv)) < 0)
+      if(sendto(sock, buffer,FRAMES_PER_BUFFER * sizeof(float), 0, 
+          (struct sockaddr*)&addr, sizeof(addr)) < 0)
       {
         writeLogErrno("udpSend error");
+        return -1;
       } 
     }
     return 0;
 }
 
-int NetworkController::udpRecv(BlockingQueue<Sample>& blockingQueue)
+void NetworkController::sendKillPackets(int mode)
 {
-    int i = 0;
+    int sock;
+    struct sockaddr_in addr;
+    float buffer[FRAMES_PER_BUFFER];
+    if(mode == 0)
+    {
+      sock = bindedUDPSocket.socket;
+      addr = serverAddr;
+    }
+    else
+    {
+      sock = holePunchSocket;
+      addr = holePunchAddr;
+    }
+    for(int i = 0; i < 10; i++)
+    {
+      sendto(sock, buffer,FRAMES_PER_BUFFER * sizeof(float), 0, 
+          (struct sockaddr*)&addr, sizeof(addr));
+    }
+}
+
+int NetworkController::udpRecv(BlockingQueue<Sample>& blockingQueue, int mode)
+{
+    int sock;
+    struct sockaddr_in addr;
+    if(mode == 0)
+    {
+      sock = bindedUDPSocket.socket;
+      addr = serverAddr;
+    }
+    else
+    {
+      sock = holePunchSocket;
+      addr = holePunchAddr;
+    }
+    int readSize;
     Sample sample;
-    float buf[FRAMES_PER_BUFFER];
+    float buffer[FRAMES_PER_BUFFER];
+    unsigned int addrlen = sizeof(addr);
     while(recvUDPThread)
     {
-      unsigned int addrlen = sizeof(udpConnection.myAddrRecv);
-      i = recvfrom(udpConnection.myRecvSocket.socket, buf, FRAMES_PER_BUFFER * sizeof(float), 0, 
-        (struct sockaddr*)&udpConnection.myAddrRecv, &addrlen);
-      if(i > 0)
+      readSize = recvfrom(sock, buffer, FRAMES_PER_BUFFER * sizeof(float), 0, 
+                  (struct sockaddr*)&addr, &addrlen);
+      if(readSize > 0)
       {
-        sample.setSample(buf);
+        sample.setSample(buffer);
         blockingQueue.push(sample);
         fflush(stdout);
       }
-      if(i < 0)
+      if(readSize < 0)
       {
         writeLogErrno("udpRecv error");
+        return -1;
       }
     }
     return 0;
 }
 
-int NetworkController::shutdownUdpConnection()
+
+int NetworkController::udpSend2()
 {
-  if(udpConnection.mySendSocketFD > 0)
-  {
-    close(udpConnection.mySendSocketFD);
-  }
-  if(udpConnection.myRecvSocket.socket > 0)
-  {
-    close(udpConnection.myRecvSocket.socket);
-  }
-  return 0;
+  std::cout<<"elo1"<<std::endl;
+    
+    while(sendUDPThread)
+    {
+      sleep(1);
+      socklen_t slenn = 0;
+      slenn = sizeof(holePunchAddr);
+      if(sendto(holePunchSocket, "no elo",6, 0, (struct sockaddr*)(&holePunchAddr) , slenn) < 0)
+      {
+        writeLogErrno("udpSend error");
+      } 
+      //send(sock, "no elo", 6, 0);
+    }
+    return 0;
 }
+
+int NetworkController::udpRecv2()
+{
+  std::cout<<"elo2"<<std::endl;
+  char buf [10];
+  int i;
+       socklen_t slenn = 0;
+      slenn = sizeof(holePunchAddr);
+  while(recvUDPThread)
+  {
+ 
+      i = recvfrom(holePunchSocket, buf, 6, 0, (struct sockaddr*)(&holePunchAddr), &slenn);
+      //std::cout<<"odebrane bajty: "<<i<<std::endl;
+      if(i > 0)
+      {
+        buf[i] = '\0';
+        printf("from client %s\n", buf);
+          memset(&buf[0], 0, sizeof(buf));
+        //std::cout<<"from client: "<<buf<<std::endl;
+      }
+      if(i < 0)
+      {
+        writeLogErrno("udpRecv error");
+      }
+            
+ 
+    }
+    puts("Wypierdalam!!!!!");
+    return 0;
+}
+
+
+void NetworkController::closeUDPSockets()
+{
+  if(bindedUDPSocket.socket > 0)
+  {
+    close(bindedUDPSocket.socket);
+  }
+  if(holePunchSocket > 0)
+  {
+    close(holePunchSocket);
+  }
+}
+
 
 void NetworkController::getMyIp()
 {
@@ -558,7 +873,7 @@ void NetworkController::getMyIp()
     err = getsockname(sock, (sockaddr*) &name, &namelen);
     assert(err != -1);
     char buffer[15];
-    strcpy(udpConnection.clientIpAddress, inet_ntop(AF_INET, &name.sin_addr, buffer, 15));
+    strcpy(myIPAddress, inet_ntop(AF_INET, &name.sin_addr, buffer, 15));
     close(sock);
 }
 
@@ -607,6 +922,23 @@ void NetworkController::writeLogErrno(std::string message)
     }
 }
 
+void NetworkController::writeLogErrno(std::string message, char* msg)
+{
+    if(networkLog.good() == true)
+    {
+      networkLog<<message<<" in "<<msg<<", errno: "<<errno<<std::endl;
+    }
+}
+
+void NetworkController::writeLogErrno(std::string message, const char* msg)
+{
+    if(networkLog.good() == true)
+    {
+      networkLog<<message<<" in "<<msg<<", errno: "<<errno<<std::endl;
+    }
+}
+
+
 void NetworkController::writeLog(std::string message)
 {
     if(networkLog.good() == true)
@@ -615,7 +947,7 @@ void NetworkController::writeLog(std::string message)
     }
 }
 
-void NetworkController::writeLog(std::string message, int value)
+void NetworkController::writeLogInt(std::string message, int value)
 {
     if(networkLog.good() == true)
     {

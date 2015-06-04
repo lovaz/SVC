@@ -1,0 +1,8 @@
+initTcpServer::OK
+tcpServer::Connection accepted
+recvTCP: 1marcin
+sendTCP: LOGIN_OK
+tcpServer::Connection accepted
+recvTCP: 2marcin
+sendTCP: CONNECTED
+recvTCP: PORTREQ
