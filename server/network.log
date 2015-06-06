@@ -6,3 +6,44 @@ tcpServer::Connection accepted
 recvTCP: 2marcin
 sendTCP: CONNECTED
 recvTCP: PORTREQ
+tcpServer::Connection accepted
+recvTCP: 1mateusz
+sendTCP: LOGIN_OK
+tcpServer::Connection accepted
+recvTCP: 2mateusz
+sendTCP: CONNECTED
+recvTCP: PORTREQ
+recvTCP: _marcin
+sendTCP: _mateusz
+recvTCP: ACCEPTED
+sendTCP: ENDPOINT
+sendTCP: ENDPOINT
+recvTCP: end_call
+sendTCP: ENDDCALL
+sendTCP: ENDOK
+recvTCP: _mateusz
+sendTCP: _marcin
+recvTCP: ACCEPTED
+sendTCP: ENDPOINT
+sendTCP: ENDPOINT
+recvTCP: end_call
+sendTCP: ENDDCALL
+sendTCP: ENDOK
+recvTCP: _marcin
+sendTCP: _mateusz
+recvTCP: REFUSEDD
+sendTCP: REFUSEDD
+recvTCP: _mateusz
+sendTCP: _marcin
+recvTCP: ACCEPTED
+sendTCP: ENDPOINT
+sendTCP: ENDPOINT
+recvTCP: start_call
+sendTCP: STARTCAL
+sendTCP: STARTOK
+recvTCP: exit
+recvTCP error in singleConnectionHandler, errno: 9
+sendTCP: ENDDCALL
+recvTCP: exit
+recvTCP error in singleConnectionHandler, errno: 9
+sendTCP error in singleConnectionHandler, errno: 88

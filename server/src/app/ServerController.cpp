@@ -1,11 +1,14 @@
-#include "NetworkController.hpp"
-#include <list>
+// SVC - Simple Voice Communicator 
+// kontroler serwera dla połączeń przez NAT
+// autor: Filip Gralewski - podstawa sieciowa
+// autor: Marcin Frankowski - logika serwera
+
+#include "ServerController.hpp"
 
 
-NetworkController::NetworkController()
+
+ServerController::ServerController()
 { 
-  isConnected = false;
-  isServerInitialized = false;
     networkLog.open("network.log", std::ios::out | std::ios::trunc);
     if(networkLog.good() != true)
     {
@@ -14,7 +17,7 @@ NetworkController::NetworkController()
 }
 
 
-NetworkController::~NetworkController()
+ServerController::~ServerController()
 {
     if(networkLog.good() == true)
     {
@@ -23,32 +26,28 @@ NetworkController::~NetworkController()
 }
 
 
-int NetworkController::initTcpServer(int port)
+int ServerController::initTcpServer(int port)
 {
-    if(isServerInitialized == false)
+    struct sockaddr_in stSockAddr;
+    connFD = socket(PF_INET, SOCK_STREAM, 0);
+
+    if(connFD == -1)
     {
-      struct sockaddr_in stSockAddr;
-      connFD = socket(PF_INET, SOCK_STREAM, 0);
+      writeLogErrno("initTcpServer::Cannot create socket");
+      return -1;
+    }
 
-      if(connFD == -1)
-      {
-        writeLogErrno("initTcpServer::Cannot create socket");
-        return -1;
-      }
-
-      memset(&stSockAddr, 0, sizeof(stSockAddr));
-    
-      stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
-      stSockAddr.sin_port = htons(port);                    //port
-      stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
-   
-      if(bind(connFD,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
-      {
-        writeLogErrno("initTcpServer::Cannot bind");
-        close(connFD);
-        return -1;
-      }
-      isServerInitialized = true;
+    memset(&stSockAddr, 0, sizeof(stSockAddr));
+  
+    stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
+    stSockAddr.sin_port = htons(port);                    //port
+    stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
+ 
+    if(bind(connFD,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
+    {
+      writeLogErrno("initTcpServer::Cannot bind");
+      close(connFD);
+      return -1;
     }
 
     if(-1 == listen(connFD, 100))
@@ -61,7 +60,7 @@ int NetworkController::initTcpServer(int port)
     return 0;
 }
 
-void NetworkController::singleConnectionHandler(std::string login)
+void ServerController::singleConnectionHandler(std::string login)
 {
   char tcpMsg[100];
   int receiverSocket = -1;
@@ -93,30 +92,28 @@ void NetworkController::singleConnectionHandler(std::string login)
           clientsMap.getAddr(cep, receiverLogin);
           int host = cep.host;
           short port = cep.port;
-          send(TCPSockRecv, &host, sizeof(host), 0);// ? puts("OK") : puts("nieok");
-          send(TCPSockRecv, &port, sizeof(port), 0);// ? puts("OK") : puts("nieok");
+          send(TCPSockRecv, &host, sizeof(host), 0);
+          send(TCPSockRecv, &port, sizeof(port), 0);
           sendTCP(receiverSocket, "ENDPOINT", "singleConnectionHandler");
           clientsMap.getAddr(cep, login.erase(0,1));
           host = cep.host;
           port = cep.port;
-          send(receiverSocket, &host, sizeof(host), 0);// ? puts("OK") : puts("nieok");
-          send(receiverSocket, &port, sizeof(port), 0);// ? puts("OK") : puts("nieok");
+          send(receiverSocket, &host, sizeof(host), 0);
+          send(receiverSocket, &port, sizeof(port), 0);
         }
         else
         {
+          login = login.erase(0,1);
           clientsMap.setBusy(receiverLogin, false);
           clientsMap.setBusy(login, false);
           clientsMap.setPartner(login, login);
           clientsMap.setPartner(receiverLogin, receiverLogin);
-          sendTCP(TCPSockRecv, "REFUSED", "singleConnectionHandler");
+          sendTCP(TCPSockRecv, "REFUSEDD", "singleConnectionHandler");
         }
       }
       else
       {
-        memset(&tcpMsg[0], 0, sizeof(tcpMsg));
-        strcpy(tcpMsg, "NOTAVAIL");
-        send(TCPSockRecv, tcpMsg, strlen(tcpMsg), 0);
-        writeLog("tcp send: ", tcpMsg);
+        sendTCP(TCPSockRecv, "NOTAVAIL", "singleConnectionHandler");
       }
     }
     else if(strcmp(tcpMsg,"start_call") == 0)
@@ -142,6 +139,8 @@ void NetworkController::singleConnectionHandler(std::string login)
         sendTCP(TCPSockRecv, "ENDOK", "singleConnectionHandler");
         clientsMap.setBusy(login, false);
         clientsMap.setBusy(partner, false);
+        clientsMap.setPartner(login, login);
+        clientsMap.setPartner(receiverLogin, receiverLogin);
       }
       else
       {
@@ -151,14 +150,6 @@ void NetworkController::singleConnectionHandler(std::string login)
     }
     else if(strcmp(tcpMsg, "exit") == 0)
     {
-      std::string partner;
-      if((partner = clientsMap.getPartner(login)) != login)
-      {
-        sendTCP(clientsMap.getSendSock(partner), "ENDDCALL", "singleConnectionHandler");
-        clientsMap.setBusy(partner, false);
-      }
-      clientsMap.erase(login);
-      std::cout<<"User "<<login<<" logged out"<<std::endl;
       close(TCPSockSend);
       close(TCPSockRecv);
     }
@@ -188,10 +179,12 @@ void NetworkController::singleConnectionHandler(std::string login)
   return;
 }
 
-int NetworkController::acceptTcpConnections(int port)
+
+int ServerController::acceptTcpConnections(int port)
 {
   unsigned int slen=sizeof(clientAddr);
   char tcpMsg[100];
+  char buf[512];
   while(1)
   {
     TCPSocket = accept(connFD, NULL, NULL);
@@ -202,7 +195,6 @@ int NetworkController::acceptTcpConnections(int port)
     }
     else
     {
-      isConnected = true;
       writeLog("tcpServer::Connection accepted");
     }
     recvTCP(TCPSocket, tcpMsg, 100, "acceptTcpConnections");
@@ -250,8 +242,9 @@ int NetworkController::acceptTcpConnections(int port)
           break;
         }
         clientsMap.update(login, clientAddr.sin_addr.s_addr, clientAddr.sin_port);
-        threadList.emplace_back(&NetworkController::singleConnectionHandler, this, login);
+        threadList.emplace_back(&ServerController::singleConnectionHandler, this, login);
         close(UDPSocket);
+        std::cout<<"User "<<login<<" has joined server"<<std::endl;
       }
       else
       {
@@ -268,7 +261,7 @@ int NetworkController::acceptTcpConnections(int port)
   return 0;
 }
 
-int NetworkController::fillUDPConnectionData()
+int ServerController::fillUDPConnectionData()
 {
   int port = 40999;
   
@@ -297,11 +290,10 @@ int NetworkController::fillUDPConnectionData()
 }
 
 
-void NetworkController::sendTCP(int sock, const char* msg, const char* function)
+void ServerController::sendTCP(int sock, const char* msg, const char* function)
 {
     if(send(sock, msg, strlen(msg), 0) == -1)
     {
-      std::cout<<"network error"<<std::endl;
       writeLogErrno("sendTCP error", function);
     }
     else
@@ -312,14 +304,13 @@ void NetworkController::sendTCP(int sock, const char* msg, const char* function)
     }
 }
 
-int NetworkController::recvTCP(int sock, char *msg, int size, const char* function)
+int ServerController::recvTCP(int sock, char *msg, int size, const char* function)
 {
     int readSize = 0;
     memset(&msg[0], 0, 100*sizeof(char));
     readSize = recv(sock, msg, size, 0);
     if(readSize == -1)
     {
-      std::cout<<"network error"<<std::endl;
       writeLogErrno("recvTCP error", function);
     }
     else if(readSize > 0)
@@ -330,8 +321,22 @@ int NetworkController::recvTCP(int sock, char *msg, int size, const char* functi
     return readSize;
 }
 
+void ServerController::cleanSockets()
+{
+    clientsMap.closeSockets();
+    if(connFD > 0)
+    {
+      close(connFD);
+    }
+}
 
-void NetworkController::writeLogErrno(std::string message)
+void ServerController::printUsers()
+{
+    clientsMap.printMap();
+}
+
+
+void ServerController::writeLogErrno(std::string message)
 {
     if(networkLog.good() == true)
     {
@@ -339,7 +344,7 @@ void NetworkController::writeLogErrno(std::string message)
     }
 }
 
-void NetworkController::writeLogErrno(std::string message, char* msg)
+void ServerController::writeLogErrno(std::string message, char* msg)
 {
     if(networkLog.good() == true)
     {
@@ -347,7 +352,7 @@ void NetworkController::writeLogErrno(std::string message, char* msg)
     }
 }
 
-void NetworkController::writeLogErrno(std::string message, const char* msg)
+void ServerController::writeLogErrno(std::string message, const char* msg)
 {
     if(networkLog.good() == true)
     {
@@ -356,7 +361,7 @@ void NetworkController::writeLogErrno(std::string message, const char* msg)
 }
 
 
-void NetworkController::writeLog(std::string message)
+void ServerController::writeLog(std::string message)
 {
     if(networkLog.good() == true)
     {
@@ -364,7 +369,7 @@ void NetworkController::writeLog(std::string message)
     }
 }
 
-void NetworkController::writeLogInt(std::string message, int value)
+void ServerController::writeLogInt(std::string message, int value)
 {
     if(networkLog.good() == true)
     {
@@ -372,7 +377,7 @@ void NetworkController::writeLogInt(std::string message, int value)
     }
 }  
 
-void NetworkController::writeLog(std::string message, char* msg)
+void ServerController::writeLog(std::string message, char* msg)
 {
     if(networkLog.good() == true)
     {

@@ -1,11 +1,20 @@
+// SVC - Simple Voice Communicator 
+// Maszyna stanowa aplikacji
+// autor: Marcin Frankowski
+
+
 #ifndef CLIENTAPP_HPP
 #define CLIENTAPP_HPP
 
 #include "AudioController.hpp"
 #include "NetworkController.hpp"
+#include <iostream>
+#include <ios>
+#include <sstream>
 #include <thread>
 #include <pthread.h>
 #include <stdio.h>
+#include <map>
 
 
 class ClientApp
@@ -25,6 +34,14 @@ private:
 	int connectToHost(std::string addr, int port);
 	int connectToServer(std::string addr, int port, std::string logg);
 	int connectToHostViaServer(std::string login);
+	void connectToServerEvent();
+	void connectToHostEvent();
+	void logoutEvent();
+	void startCallEvent();
+	void endCallEvent();
+	void helpEvent();
+	void exitEvent();
+	void listEvent();
 
 public:
 
@@ -36,22 +53,14 @@ public:
 	void endCallViaNet();
 	void startCallViaNat();
 	void endCallViaNat();
+	void stopNetTransmission();
+	void stopNatTransmission();
 	void commandThread();
 	void threadCancel();
-	void stopTransmission();
-	void stopNatTransmission();
-	void conToHostEvent();
-	void conToServEvent();
-	void disconFromServerEvent();
-	void endCallEvent();
-	void startCallEvent();
-	void helpEvent();
-	void exitEvent();
-	void logoutEvent();
-	void checkCIN(std::string msg);
 	int acceptCall(std::string ip);
 	int acceptCall(char* login);
-	 void resetApp(){}
+	int checkPort(std::string port);
+	bool isBusy();
 };
 
 

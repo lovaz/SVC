@@ -1,3 +1,9 @@
+// SVC - Simple Voice Communicator 
+// Kontroler połączenia sieciowego
+// autor: Filip Gralewski - podstawa sieci
+// autor: Beata Dobrzyńska - rozwinięcie funkcjonalności klienta
+
+
 #ifndef NETWORKCONTROLLER_HPP
 #define NETWORKCONTROLLER_HPP
 
@@ -12,6 +18,7 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <ifaddrs.h>
+#include <fcntl.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +43,6 @@ struct socketPort
 };
 
 
-
 class NetworkController
 {
 private:
@@ -50,16 +56,11 @@ private:
    int TCPSockSend;
    int TCPSockRecv; 
    int connFD;
-   int error;
-   bool isConnected;
-   bool areUdpSocketsCreated;
-   bool isTcpClient;
-   bool recvUDPThread;
-   bool sendUDPThread;
-   bool recvTCPThread;
    bool passivSide;
    bool activSide;
-   bool isServerInitialized;
+   bool isConnected;
+   bool recvUDPThread;
+   bool sendUDPThread;
    std::fstream networkLog;
    std::list<std::thread> threadList;
    void writeLogErrno(std::string message);
@@ -68,46 +69,42 @@ private:
    void writeLog(std::string message);
    void writeLogInt(std::string message, int value);
    void writeLog(std::string message, char* msg);
+   int connectTimeout(int sec);
+   void setServerAddr(int port);
+   int recvHolePunchData(int sock);
+   void setHolePunchAddr(int host, short port);
+   void sendKillPackets(int mode);
 
 public:
 
    NetworkController(ClientApp* clientApp);
    ~NetworkController();
+   int createUdpSocket(int portRecv);
    int initTcpServer(int port);
    int acceptTcpConnections(int port);
-   int tcpConnect(int port, char* addr, const char* addrFamily);
+   int connectHost(int port, char* addr, const char* addrFamily);
    int connectServer(int port, char* addr, char* login);
+   int callPeerRequest(std::string login);
    int shutdownTcpConnection();
-   void sendKillPackets(int mode);
    void closeUDPSockets();
    int startUDPNetTransmission();
    int startUDPNatTransmission();
-   void endNetConnection();
-   void endNatConnection();
-   int createUdpSocket(int portRecv);
+   void tcpRecvFromHost();
+   void tcpRecvFromServer();
    int udpSend(BlockingQueue<Sample>& blockingQueue, int mode);
    int udpRecv(BlockingQueue<Sample>& blockingQueue, int mode);
-   int udpSend2();
-   int udpRecv2();
-   void setServerAddr(int port);
-   void setHolePunchAddr(int host, short port);
-   int recvHolePunchData(int sock);
-   void tcpRecv();
-   void tcpRecvFromServer();
-   void getMyIp();
-   void stopSendUDPThread();
-   void stopRecvUDPThread();
-   void stopRecvTCPThread();
-   void startSendUDPThread();
-   void startRecvUDPThread();
-   void startRecvTCPThread();
-   void getHolePunchData();
-   void sampleFactory(BlockingQueue<Sample>& blockingQueue);
-   int callPeerRequest(std::string login);
    void sendTCP(int sock, const char* msgbuf, const char* function);
    int recvTCP(int sock, char* msg, int size, const char* function);
    void logoutFromServer();
+   void getMyIp();
+   void getHolePunchData();
    void getUsersList();
+   void endNetConnection();
+   void endNatConnection();
+   void stopSendUDPThread();
+   void stopRecvUDPThread();
+   void startSendUDPThread();
+   void startRecvUDPThread();
 };
 
 #endif

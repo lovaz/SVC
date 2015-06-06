@@ -1,3 +1,9 @@
+// SVC - Simple Voice Communicator 
+// Kontroler połączenia sieciowego
+// autor: Filip Gralewski - podstawa sieci
+// autor: Beata Dobrzyńska - rozwinięcie funkcjonalności klienta
+
+
 #include "NetworkController.hpp"
 #include "ClientApp.hpp"
 
@@ -6,13 +12,9 @@ NetworkController::NetworkController(ClientApp* clientApp) : clientApp(clientApp
 { 
     passivSide = false;
     activSide = false;
-    isTcpClient = false;
     isConnected = false;
-    areUdpSocketsCreated = false;
     recvUDPThread = false;
     sendUDPThread = false;
-    recvTCPThread = false;
-    isServerInitialized = false;
     networkLog.open("network.log", std::ios::out | std::ios::trunc);
     if(networkLog.good() != true)
     {
@@ -32,32 +34,29 @@ NetworkController::~NetworkController()
 
 int NetworkController::initTcpServer(int port)
 {
-    if(isServerInitialized == false)
+    struct sockaddr_in stSockAddr;
+    connFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if(connFD == -1)
     {
-      struct sockaddr_in stSockAddr;
-      connFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-
-      if(connFD == -1)
-      {
-        writeLogErrno("initTcpServer::Cannot create socket");
-        return -1;
-      }
-
-      memset(&stSockAddr, 0, sizeof(stSockAddr));
-      
-      stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
-      stSockAddr.sin_port = htons(port);                    //port
-      stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
-   
-      if(bind(connFD,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
-      {
-        writeLogErrno("initTcpServer::Cannot bind");
-        close(connFD);
-        return -1;
-      }
-      isServerInitialized = true;
+      writeLogErrno("initTcpServer::Cannot create socket");
+      return -1;
     }
-    if(-1 == listen(connFD, 10))
+
+    memset(&stSockAddr, 0, sizeof(stSockAddr));
+    
+    stSockAddr.sin_family = AF_INET;                      //ipv4, dla ipv6 - AF_INET6
+    stSockAddr.sin_port = htons(port);                    //port
+    stSockAddr.sin_addr.s_addr = htonl(INADDR_ANY);       //adres nasluchiwania
+
+    if(bind(connFD,(struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
+    {
+      writeLogErrno("initTcpServer::Cannot bind");
+      close(connFD);
+      return -1;
+    }
+
+    if(-1 == listen(connFD, 1))
     {
       writeLogErrno("initTcpServer::Cannot listen");
       close(connFD);
@@ -74,34 +73,43 @@ int NetworkController::acceptTcpConnections(int port)
   char tcpMsg[100];
   while(1)
   {
-    TCPSockRecv = accept(connFD, NULL, NULL);
+    int TCPSock = accept(connFD, NULL, NULL);
    
-    if(TCPSockRecv < 0)
+    if(TCPSock < 0)
     {
       writeLogErrno("tcpServer::Cannot accept");
       return -1;
     }
     else
     {
-      isConnected = true;
       writeLog("tcpServer::Connection accepted");
     }
-
+    if(isConnected == true)
+    {
+      sendTCP(TCPSock, "BUSYY", "acceptTcpConnections");
+      close(TCPSock);
+      continue;
+    }
+    else
+    {
+      sendTCP(TCPSock, "READY", "acceptTcpConnections");
+      TCPSockRecv = TCPSock;
+    }
     recvTCP(TCPSockRecv, tcpMsg, 100, "acceptTcpConnections");
     std::string ip(tcpMsg, strlen(tcpMsg));
     if(activSide == false)
     {
       passivSide = true;
-
       if(clientApp->acceptCall(ip) == 0)
       {        
         sendTCP(TCPSockRecv, "CALL_ACCEPTED", "acceptTcpConnections");
         clientApp->commandThread();
 
-        if(tcpConnect(port, &ip[0u], "ipv4") == 0)
+        if(connectHost(port, &ip[0u], "ipv4") == 0)
         {
-          startRecvTCPThread();
-          tcpRecv();
+          isConnected = true;
+          std::thread t1(&NetworkController::tcpRecvFromHost, this);
+          t1.detach();
         }
         else
         {
@@ -130,9 +138,10 @@ int NetworkController::acceptTcpConnections(int port)
       }
       else
       {
+        isConnected = true;
         sendTCP(TCPSockRecv, "RETURN_ACCEPTED", "acceptTcpConnections");
-        startRecvTCPThread();
-        tcpRecv();
+        std::thread t1(&NetworkController::tcpRecvFromHost, this);
+        t1.detach();
       }
     }
   }
@@ -184,7 +193,6 @@ int NetworkController::connectServer(int port, char* addr, char* login)
     }
     else
     {
-      isConnected = true;
       writeLog("Connected to server first time");
     }
     std::string one("1");
@@ -201,7 +209,6 @@ int NetworkController::connectServer(int port, char* addr, char* login)
       }
       else
       {
-        isConnected = true;
         writeLog("Connected to server first time");
       }
       std::string two("2");
@@ -233,6 +240,7 @@ int NetworkController::connectServer(int port, char* addr, char* login)
           shutdownTcpConnection();
           return -1;
         }
+        isConnected = true;
         std::thread recvFromServerThread(&NetworkController::tcpRecvFromServer, this);
         recvFromServerThread.detach();
       }
@@ -249,28 +257,29 @@ int NetworkController::connectServer(int port, char* addr, char* login)
     }
 }
 
-int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
+int NetworkController::connectHost(int port, char* addr, const char* addrFamily)
 {
     char tcpMsg[100];
-    struct sockaddr_in stSockAddr;
     int res;
     TCPSockSend = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
     if(TCPSockSend == -1)
     {
       writeLogErrno("initTcpClient::Cannot create socket");
       return -1;
     }
+
     strcpy(serverIPAddress,addr);
 
-    memset(&stSockAddr, 0, sizeof(stSockAddr));
+    memset(&serverAddr, 0, sizeof(serverAddr));
    
     if(strcmp(addrFamily, "ipv4") == 0)
     {
-      stSockAddr.sin_family = AF_INET;
+      serverAddr.sin_family = AF_INET;
     }
     else if (strcmp(addrFamily, "ipv6") == 0)
     {
-      stSockAddr.sin_family = AF_INET6;
+      serverAddr.sin_family = AF_INET6;
     }
     else
     {
@@ -279,8 +288,8 @@ int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
       return -2;
     }
 
-    stSockAddr.sin_port = htons(port);
-    res = inet_pton(AF_INET, addr, &stSockAddr.sin_addr);
+    serverAddr.sin_port = htons(port);
+    res = inet_pton(AF_INET, addr, &serverAddr.sin_addr);
     
     if(res < 0)
     {
@@ -296,27 +305,37 @@ int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
     }
     writeLog("initTcpClient::OK");
 
-    if(connect(TCPSockSend, (struct sockaddr *)&stSockAddr, sizeof(stSockAddr)) == -1)
+    int ret = connectTimeout(5);
+    if(ret == -1)
     {
-      writeLogErrno("tcpConnect::Cannot connect");
+      writeLogErrno("connectHost::Cannot connect");
       close(TCPSockSend);
       return -1;
     }
+    else if(ret == 1)
+    {
+      return -1; 
+    }
     else
     {
-      isConnected = true;
       writeLog("Connected");
     }
 
+    recvTCP(TCPSockSend, tcpMsg, 5, "connectHost");
+    if(strcmp(tcpMsg, "BUSYY") == 0)
+    {
+      close(TCPSockSend);
+      return 2;
+    }
     getMyIp();
-    sendTCP(TCPSockSend, myIPAddress, "tcpConnect");
-    recvTCP(TCPSockSend, tcpMsg, 15, "tcpConnect");
+    sendTCP(TCPSockSend, myIPAddress, "connectHost");
+    recvTCP(TCPSockSend, tcpMsg, 15, "connectHost");
 
     if(passivSide == false)
     {
       if(strcmp(tcpMsg, "CALL_REFUSED") == 0)
       {
-        writeLog("tcpConnect::OK_refused");
+        writeLog("connectHost::OK_refused");
         close(TCPSockSend);
         activSide = false;
         passivSide = false;
@@ -324,7 +343,7 @@ int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
       }
       else if(strcmp(tcpMsg, "CALL_ACCEPTED") == 0)
       {
-        writeLog("tcpConnect::OK_accepted");
+        writeLog("connectHost::OK_accepted");
         activSide = true;
         passivSide = false;
         return 0;
@@ -343,17 +362,100 @@ int NetworkController::tcpConnect(int port, char* addr, const char* addrFamily)
     {
       if(strcmp(tcpMsg, "RETURN_ACCEPTED") == 0)
       {
-        writeLog("tcpConnect::OK_return_connection");
+        writeLog("connectHost::OK_return_connection");
         return 0;
       }
       else
       {
-        writeLogErrno("tcpConnect::return_connection");
+        writeLogErrno("connectHost::return_connection");
         return -1;
       }
     }
     return -1;
 }
+
+int NetworkController::connectTimeout(int sec)
+{
+  int res = -1; 
+  int ret = -1;
+  long arg; 
+  struct timeval tv; 
+  int valopt; 
+  fd_set myset; 
+  socklen_t lon; 
+  // Set non-blocking 
+  if((arg = fcntl(TCPSockSend, F_GETFL, NULL)) < 0) 
+  { 
+     writeLogErrno("fcntl");
+     return -1;
+  }
+
+  arg |= O_NONBLOCK; 
+  if(fcntl(TCPSockSend, F_SETFL, arg) < 0) 
+  { 
+     writeLogErrno("fcntl");
+     return -1; 
+  } 
+  // Trying to connect with timeout 
+  res = connect(TCPSockSend, (struct sockaddr *)&serverAddr, sizeof(serverAddr)); 
+  if (res < 0) 
+  { 
+    if (errno == EINPROGRESS) 
+    { 
+      tv.tv_sec = sec; 
+      tv.tv_usec = 0; 
+      FD_ZERO(&myset); 
+      FD_SET(TCPSockSend, &myset); 
+      res = select(TCPSockSend+1, NULL, &myset, NULL, &tv); 
+      switch(res)
+      {
+        case 0:
+          std::cout<<"timed out!"<<std::endl;
+          ret = 1;
+          break;
+
+        case -1:
+          writeLogErrno("select");
+          ret = -1;
+          break;
+
+        default:
+          getsockopt(TCPSockSend, SOL_SOCKET, SO_ERROR, (void*)(&valopt), &lon);
+          if(valopt == 0)
+          {
+            ret = 0;
+            break;
+          }
+          else
+          {
+            writeLogErrno("getsockopt");
+            ret = -1;
+            break;
+          }
+      }
+    } 
+    else 
+    { 
+      writeLogErrno("Connection error");
+      return -1; 
+    } 
+  } 
+  //set blocking mode
+  if( (arg = fcntl(TCPSockSend, F_GETFL, NULL)) < 0) 
+  { 
+    writeLogErrno("fcntl");
+    return -1;  
+  } 
+  arg &= (~O_NONBLOCK); 
+  if( fcntl(TCPSockSend, F_SETFL, arg) < 0) 
+  { 
+    writeLogErrno("fcntl");
+    return -1; 
+  }
+  //connected
+  return ret; 
+}
+
 
 int NetworkController::shutdownTcpConnection()
 {
@@ -403,11 +505,6 @@ int NetworkController::shutdownTcpConnection()
 int NetworkController::startUDPNetTransmission()
 {
     char tcpMsg[100];
-    if(!isConnected)
-    {
-      std::cout<<"Brak połączenia TCP.\n";
-      return -1;
-    }
     sendTCP(TCPSockSend, "udp_start", "startUDPNetTransmission");
     recvTCP(TCPSockSend, tcpMsg, 10, "startUDPNetTransmission");
     if(strcmp(tcpMsg, "UDP_OK") != 0)
@@ -416,7 +513,6 @@ int NetworkController::startUDPNetTransmission()
       return -1;
     }
     setServerAddr(50002);
-    areUdpSocketsCreated = true;
     return 0;
 }
 
@@ -473,10 +569,6 @@ int NetworkController::recvTCP(int sock, char *msg, int size, const char* functi
 void NetworkController::endNatConnection()
 {
     char tcpMsg[100];
-    if(!isConnected)
-    {
-      return;
-    }
     sendTCP(TCPSockSend, "end_call", "endConnection");
     recvTCP(TCPSockSend, tcpMsg, 10, "endConnection");
     if(strcmp(tcpMsg,"ENDOK") == 0)
@@ -493,10 +585,6 @@ void NetworkController::endNatConnection()
 void NetworkController::endNetConnection()
 {
     char tcpMsg[100];
-    if(!isConnected)
-    {
-      return;
-    }
     activSide = false;
     passivSide = false;
     sendTCP(TCPSockSend, "end_call", "endConnection");
@@ -510,43 +598,33 @@ void NetworkController::endNetConnection()
       writeLog("connection ended with errors");
     }
     sendKillPackets(0);
-    stopRecvTCPThread();
     shutdownTcpConnection();
 }
 
 
-void NetworkController::tcpRecv()
+void NetworkController::tcpRecvFromHost()
 {
-  while(recvTCPThread)
+  char tcpMsg[100];
+  while(recvTCP(TCPSockRecv , tcpMsg , 10, "tcpRecvFromHost") > 0)
   {
-    char tcpMsg[100];
-    if(!isConnected)
+    if(strcmp(tcpMsg,"udp_start") == 0)
     {
-      printf("Brak polaczenia!\n");
-      return;
+      setServerAddr(50002);
+      sendTCP(TCPSockRecv, "UDP_OK", "tcpRecvFromHost");
+      clientApp->startCallViaNet();
     }
-    while(recvTCP(TCPSockRecv , tcpMsg , 10, "tcpRecv") > 0)
+    else if(strcmp(tcpMsg,"end_call") == 0)
     {
-      if(strcmp(tcpMsg,"udp_start") == 0)
-      {
-        setServerAddr(50002);
-        sendTCP(TCPSockRecv, "UDP_OK", "tcpRecv");
-        clientApp->startCallViaNet();
-      }
-      else if(strcmp(tcpMsg,"enc_call") == 0)
-      {
-        clientApp->stopTransmission();
-        sendTCP(TCPSockRecv, "ENDOK", "tcpRecv");
-        shutdownTcpConnection();
-        sendKillPackets(0);
-        activSide = false;
-        passivSide = false;
-        return;
-      }
+      clientApp->stopNetTransmission();
+      sendTCP(TCPSockRecv, "ENDOK", "tcpRecvFromHost");
+      sendKillPackets(0);
+      break;
     }
-    shutdownTcpConnection();
-    stopRecvTCPThread();
   }
+  shutdownTcpConnection();
+  isConnected = false;
+  activSide = false;
+  passivSide = false;
   return;
 }
 
@@ -586,8 +664,9 @@ void NetworkController::tcpRecvFromServer()
     {
       clientApp->startCallViaNat();
     }
-}
-
+  }
+  shutdownTcpConnection();
+  isConnected = false;
   return;
 }
 
@@ -735,27 +814,7 @@ int NetworkController::udpSend(BlockingQueue<Sample>& blockingQueue, int mode)
     return 0;
 }
 
-void NetworkController::sendKillPackets(int mode)
-{
-    int sock;
-    struct sockaddr_in addr;
-    float buffer[FRAMES_PER_BUFFER];
-    if(mode == 0)
-    {
-      sock = bindedUDPSocket.socket;
-      addr = serverAddr;
-    }
-    else
-    {
-      sock = holePunchSocket;
-      addr = holePunchAddr;
-    }
-    for(int i = 0; i < 10; i++)
-    {
-      sendto(sock, buffer,FRAMES_PER_BUFFER * sizeof(float), 0, 
-          (struct sockaddr*)&addr, sizeof(addr));
-    }
-}
+
 
 int NetworkController::udpRecv(BlockingQueue<Sample>& blockingQueue, int mode)
 {
@@ -795,52 +854,31 @@ int NetworkController::udpRecv(BlockingQueue<Sample>& blockingQueue, int mode)
 }
 
 
-int NetworkController::udpSend2()
-{
-  std::cout<<"elo1"<<std::endl;
-    
-    while(sendUDPThread)
-    {
-      sleep(1);
-      socklen_t slenn = 0;
-      slenn = sizeof(holePunchAddr);
-      if(sendto(holePunchSocket, "no elo",6, 0, (struct sockaddr*)(&holePunchAddr) , slenn) < 0)
-      {
-        writeLogErrno("udpSend error");
-      } 
-      //send(sock, "no elo", 6, 0);
-    }
-    return 0;
-}
 
-int NetworkController::udpRecv2()
+void NetworkController::sendKillPackets(int mode)
 {
-  std::cout<<"elo2"<<std::endl;
-  char buf [10];
-  int i;
-       socklen_t slenn = 0;
-      slenn = sizeof(holePunchAddr);
-  while(recvUDPThread)
-  {
- 
-      i = recvfrom(holePunchSocket, buf, 6, 0, (struct sockaddr*)(&holePunchAddr), &slenn);
-      //std::cout<<"odebrane bajty: "<<i<<std::endl;
-      if(i > 0)
-      {
-        buf[i] = '\0';
-        printf("from client %s\n", buf);
-          memset(&buf[0], 0, sizeof(buf));
-        //std::cout<<"from client: "<<buf<<std::endl;
-      }
-      if(i < 0)
-      {
-        writeLogErrno("udpRecv error");
-      }
-            
- 
+    int sock;
+    struct sockaddr_in addr;
+    float buffer[FRAMES_PER_BUFFER];
+    for(int i=0; i<FRAMES_PER_BUFFER; i++)
+    {
+      buffer[i] = SAMPLE_SILENCE;
     }
-    puts("Wypierdalam!!!!!");
-    return 0;
+    if(mode == 0)
+    {
+      sock = bindedUDPSocket.socket;
+      addr = serverAddr;
+    }
+    else
+    {
+      sock = holePunchSocket;
+      addr = holePunchAddr;
+    }
+    for(int i = 0; i < 5; i++)
+    {
+      sendto(sock, buffer,FRAMES_PER_BUFFER * sizeof(float), 0, 
+          (struct sockaddr*)&addr, sizeof(addr));
+    }
 }
 
 
@@ -890,12 +928,6 @@ void NetworkController::stopRecvUDPThread()
 }
 
 
-void NetworkController::stopRecvTCPThread()
-{
-    recvTCPThread = false;
-}
-
-
 void NetworkController::startSendUDPThread()
 {
     sendUDPThread = true;
@@ -905,12 +937,6 @@ void NetworkController::startSendUDPThread()
 void NetworkController::startRecvUDPThread()
 {
     recvUDPThread = true;
-}
-
-
-void NetworkController::startRecvTCPThread()
-{
-    recvTCPThread = true;
 }
 
 
@@ -964,24 +990,5 @@ void NetworkController::writeLog(std::string message, char* msg)
 }  
 
 
-//funkcja pomocnicza
-void NetworkController::sampleFactory(BlockingQueue<Sample>& blockingQueue)
-{
-  int i = 0;
-  float* message = (float*)malloc(FRAMES_PER_BUFFER*sizeof(float));
-  while(++i < 100)
-  {
-    fflush(stdout);
-    Sample sample;
-    for(int j = 0; j<FRAMES_PER_BUFFER; j++)
-    {
-      message[j] = 0.00001 * j;
-    }
-    sample.setSample(message);
-    blockingQueue.push(sample);
-    sleep(1);
-  }
-  free(message);
-}
 
 

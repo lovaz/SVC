@@ -1,3 +1,8 @@
+// SVC - Simple Voice Communicator 
+// Obiekt opakowujący próbkę dźwięku na potrzeby kolejki blokującej
+// autor: Marcin Frankowski
+
+
 #ifndef SAMPLE_HPP
 #define SAMPLE_HPP
 

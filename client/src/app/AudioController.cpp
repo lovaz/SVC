@@ -1,5 +1,9 @@
-#include "AudioController.hpp"
+// SVC - Simple Voice Communicator 
+// kontroler dźwięku
+// autor: Mateusz Wolf
 
+
+#include "AudioController.hpp"
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>

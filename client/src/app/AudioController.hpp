@@ -1,3 +1,8 @@
+// SVC - Simple Voice Communicator 
+// kontroler dźwięku
+// autor: Mateusz Wolf
+
+
 #ifndef AUDIOCONTROLLER_HPP
 #define AUDIOCONTROLLER_HPP
 

@@ -1,5 +1,10 @@
-#ifndef NETWORKCONTROLLER_HPP
-#define NETWORKCONTROLLER_HPP
+// SVC - Simple Voice Communicator 
+// kontroler serwera dla połączeń przez NAT
+// autor: Filip Gralewski - podstawa sieciowa
+// autor: Marcin Frankowski - logika serwera
+
+#ifndef SERVERCONTROLLER_HPP
+#define SERVERCONTROLLER_HPP
 
 #include <iostream>
 #include <sys/types.h>
@@ -12,26 +17,18 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <ifaddrs.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
 #include <fstream>
-
-#include "BlockingQueue.hpp"
-#include "ThreadSafeMap.hpp"
-#include "Sample.hpp"
+#include "ClientsMap.hpp"
 #include <thread>
 #include <list>
 
 
-
-
-
-
-class NetworkController
+class ServerController
 {
 private:
 
@@ -40,13 +37,8 @@ private:
    int TCPSocket;
    int TCPSockSend;
    int UDPSocket;
-   char buf[512];
-   ThreadSafeMap clientsMap;
+   ClientsMap clientsMap;
    int connFD;
-   int error;
-   char tcpMsg[100];
-   bool isConnected;
-   bool isServerInitialized;
    std::fstream networkLog;
    std::list<std::thread> threadList;
    void writeLogErrno(std::string message);
@@ -58,19 +50,17 @@ private:
 
 public:
 
-   NetworkController();
-   ~NetworkController();
+   ServerController();
+   ~ServerController();
    int initTcpServer(int port);
    int acceptTcpConnections(int port);
-   void singleConnectionHandler(std::string login);
    int fillUDPConnectionData();
-   void sendTCP(int sock, const char* msgbuf, const char* function);
    int recvTCP(int sock, char* msg, int size, const char* function);
+   void sendTCP(int sock, const char* msgbuf, const char* function);
+   void singleConnectionHandler(std::string login);
    void getUsersList();
-   void printUsers()
-   {
-      clientsMap.printMap();
-   }
+   void printUsers();
+   void cleanSockets();
 };
 
 #endif

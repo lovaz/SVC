@@ -1,3 +1,7 @@
+// SVC - Simple Voice Communicator 
+// Kolejka blokująca do komunikacji między wątkami
+// autor: Marcin Frankowski
+
 #ifndef BLOCKINGQUEUE_HPP
 #define BLOCKINGQUEUE_HPP
 
