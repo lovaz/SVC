@@ -57,8 +57,7 @@ typedef struct PaAlsaStreamInfo
     unsigned long version;
 
     const char *deviceString;
-}
-PaAlsaStreamInfo;
+} PaAlsaStreamInfo;
 
 /** Initialize host API specific structure, call this before setting relevant attributes. */
 void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info );

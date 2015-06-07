@@ -16,9 +16,9 @@ env = Environment()
 
 env.Append( CPPFLAGS = '-Wall -std=c++11' )
 #env.Append( LINKFLAGS = '' )
-#env.Append( CPPPATH = [ '../includes', '../includes/portaudio/src/common'  ] )
+env.Append( CPPPATH = [ 'src/app'] )
 #env.Append( LIBPATH = ['/usr/lib'] )
-env.Append( LIBS = [ 'portaudio' ] )
+env.Append( LIBS = [ 'portaudio', 'pthread' ] )
 
 targetFile = 'client'
 
